@@ -8,6 +8,14 @@ st.set_page_config(page_title="궁중 식탁", page_icon="🍚", layout="wide")
 
 st.markdown("""
 <style>
+.stApp {
+    background-image:
+        linear-gradient(rgba(48, 25, 18, 0.42), rgba(48, 25, 18, 0.42)),
+        url("https://images.unsplash.com/photo-1528360983277-13d401cdc186?auto=format&fit=crop&w=2400&q=85");
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+}
 .stApp { background: linear-gradient(rgba(248,242,226,.96), rgba(238,227,199,.96)); color:#33281f; }
 html, body, [class*="css"], p, label, div, span { font-family:"궁서체","Gungsuh","BatangChe",serif; }
 h1,h2,h3,h4 { font-family:"궁서체","Gungsuh","BatangChe",serif !important; color:#4a2419 !important; }
