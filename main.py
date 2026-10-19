@@ -8,25 +8,23 @@ st.set_page_config(page_title="궁중 식탁", page_icon="🍚", layout="wide")
 
 st.markdown("""
 <style>
-.stApp {
-    background-image:
-        linear-gradient(rgba(48, 25, 18, 0.42), rgba(48, 25, 18, 0.42)),
-        url("https://images.unsplash.com/photo-1528360983277-13d401cdc186?auto=format&fit=crop&w=2400&q=85");
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
+.stApp { background:#f6f8f7; color:#24332d; }
+html, body, [class*="css"], p, label, div, span, input, textarea, button {
+    font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
 }
-.stApp { background: linear-gradient(rgba(248,242,226,.96), rgba(238,227,199,.96)); color:#33281f; }
-html, body, [class*="css"], p, label, div, span { font-family:"궁서체","Gungsuh","BatangChe",serif; }
-h1,h2,h3,h4 { font-family:"궁서체","Gungsuh","BatangChe",serif !important; color:#4a2419 !important; }
-.royal-title { text-align:center; color:#54291d; font-size:42px; font-weight:bold; letter-spacing:4px; }
-.royal-subtitle { text-align:center; color:#745744; font-size:17px; }
-.royal-line { height:3px; background:#8b241c; margin:15px 0 20px; }
-.info-box { background:#f5ead0; border-left:5px solid #8b241c; padding:13px 16px; border-radius:5px; }
-.food-card { background:#fffbef; border:1px solid #c8ad7f; border-radius:12px; padding:15px; margin-bottom:10px; }
-.stButton > button { background:#6b281d; color:#fffaf0; border-radius:7px; font-family:"궁서체","Gungsuh",serif; }
-section[data-testid="stSidebar"] { background:#eee2c4; }
-[data-testid="stMetric"] { background:#fffaf0; border:1px solid #cdb88e; padding:10px; border-radius:8px; }
+h1,h2,h3,h4 { font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif !important; color:#203b31 !important; letter-spacing:-0.5px; }
+.main .block-container { padding-top:2rem; padding-bottom:2rem; }
+.app-title { text-align:center; color:#203b31; font-size:36px; font-weight:750; letter-spacing:-1px; }
+.app-subtitle { text-align:center; color:#687a71; font-size:15px; margin-top:8px; }
+.app-line { height:1px; background:#dce5df; margin:20px 0 24px; }
+.info-box { background:#edf4ef; border:1px solid #d8e7dc; padding:14px 16px; border-radius:10px; color:#29483a; }
+.food-card,.meal-card,.farm-card { background:#fff; border:1px solid #e1e8e3; border-radius:12px; padding:16px 18px; margin-bottom:12px; }
+.meal-card h4,.farm-card h4 { margin:0 0 8px 0; }
+.stButton > button { background:#2f6650; color:white; border:0; border-radius:8px; padding:.55rem 1rem; font-weight:600; }
+.stButton > button:hover { background:#244f3d; color:white; border:0; }
+section[data-testid="stSidebar"] { background:#eef3ef; }
+[data-testid="stMetric"] { background:#fff; border:1px solid #e1e8e3; padding:12px; border-radius:10px; }
+a { color:#2f6650 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -95,234 +93,3 @@ def load_food_data():
         return db if db else FOOD_DB
     except Exception:
         return FOOD_DB
-
-FOOD_DB = load_food_data()
-
-if "intake_list" not in st.session_state:
-    st.session_state.intake_list = []
-
-def parse_amount(text, food_name):
-    text = text.lower().strip()
-    food = FOOD_DB[food_name]
-
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(g|그램)", text)
-    if m:
-        return float(m.group(1))
-
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(kg|킬로그램)", text)
-    if m:
-        return float(m.group(1)) * 1000
-
-    if "반공기" in text or "반 공기" in text:
-        return 105 if food_name in ["흰밥","현미밥"] else food["unit_g"] * 0.5
-
-    if "한공기" in text or "한 공기" in text:
-        return 210 if food_name in ["흰밥","현미밥"] else food["unit_g"]
-
-    m = re.search(r"(\d+(?:\.\d+)?)\s*공기", text)
-    if m:
-        n = float(m.group(1))
-        return n * 210 if food_name in ["흰밥","현미밥"] else n * food["unit_g"]
-
-    if "주먹의 반" in text or "주먹 반" in text or "주먹의 절반" in text:
-        return 50
-    if "한주먹" in text or "한 주먹" in text or "주먹만큼" in text:
-        return 100
-    if "한줌" in text or "한 줌" in text:
-        return 30
-    if "반개" in text or "반 개" in text:
-        return food["unit_g"] * 0.5
-
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(개|알|봉|팩|컵|잔|장|줄)", text)
-    if m:
-        return float(m.group(1)) * food["unit_g"]
-
-    if "한개" in text or "한 개" in text or "하나" in text:
-        return food["unit_g"]
-
-    m = re.search(r"(\d+(?:\.\d+)?)", text)
-    return float(m.group(1)) if m else None
-
-def find_food(text):
-    for name in sorted(FOOD_DB, key=len, reverse=True):
-        if name.lower() in text.lower():
-            return name
-    return None
-
-def nutrition(food_name, amount):
-    f = FOOD_DB[food_name]
-    r = amount / f["unit_g"]
-    return {
-        "음식":food_name,
-        "섭취량(g)":round(amount,1),
-        "칼로리(kcal)":round(f["calories"]*r,1),
-        "탄수화물(g)":round(f["carbs"]*r,1),
-        "당류(g)":round(f["sugar"]*r,1),
-        "단백질(g)":round(f["protein"]*r,1),
-        "지방(g)":round(f["fat"]*r,1),
-        "나트륨(mg)":round(f["sodium"]*r,1),
-        "식이섬유(g)":round(f["fiber"]*r,1)
-    }
-
-def parse_multiple(text):
-    parts = re.split(r",|\n|그리고|및", text)
-    results, errors = [], []
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
-        name = find_food(part)
-        if not name:
-            errors.append(part)
-            continue
-        amount = parse_amount(part, name)
-        if amount is None:
-            errors.append(part)
-            continue
-        result = nutrition(name, amount)
-        result["입력 내용"] = part
-        results.append(result)
-    return results, errors
-
-def total_nutrition():
-    if not st.session_state.intake_list:
-        return {k:0 for k in ["칼로리(kcal)","탄수화물(g)","당류(g)","단백질(g)","지방(g)","나트륨(mg)","식이섬유(g)"]}
-    df = pd.DataFrame(st.session_state.intake_list)
-    return {k:round(df[k].sum(),1) for k in ["칼로리(kcal)","탄수화물(g)","당류(g)","단백질(g)","지방(g)","나트륨(mg)","식이섬유(g)"]}
-
-GROUPS = {
-    "주식":["흰밥","현미밥","김밥"],
-    "단백질":["닭가슴살","계란","두부","고등어","연어"],
-    "채소":["브로콜리","상추","방울토마토","시금치"],
-    "과일":["바나나","사과","딸기"],
-    "유제품":["우유","요거트"],
-    "간식":["고구마","아이스크림","크리스피 도넛","초콜릿 도넛"]
-}
-
-def make_meal(meal_type, style):
-    if style == "가볍게":
-        main = random.choice(["현미밥","고구마"])
-    else:
-        main = random.choice(GROUPS["주식"])
-    meal = [main, random.choice(GROUPS["단백질"])]
-    meal += random.sample(GROUPS["채소"], 2)
-    meal.append("김치")
-    if meal_type == "아침":
-        meal.append(random.choice(GROUPS["유제품"] + GROUPS["과일"]))
-    else:
-        meal.append(random.choice(GROUPS["과일"]))
-    return meal
-
-st.markdown('<div class="royal-title">🍚 궁중 식탁</div><div class="royal-subtitle">식품 영양 성분 분석 · 섭취 기록 · 맞춤 식단 관리</div><div class="royal-line"></div>', unsafe_allow_html=True)
-st.markdown('<div class="info-box">오늘 먹은 음식을 기록하고 식품의 영양성분을 확인해보세요.</div>', unsafe_allow_html=True)
-
-st.sidebar.title("👤 나의 정보")
-age = st.sidebar.number_input("나이", 10, 100, 17)
-height = st.sidebar.number_input("키(cm)", 100.0, 220.0, 165.0)
-weight = st.sidebar.number_input("몸무게(kg)", 25.0, 150.0, 60.0)
-activity = st.sidebar.selectbox("평소 활동량", ["낮음","보통","높음"])
-st.sidebar.divider()
-st.sidebar.caption(f"현재 식품 데이터: {len(FOOD_DB)}개")
-if os.path.exists("food_data.csv"):
-    st.sidebar.success("food_data.csv 연결됨")
-else:
-    st.sidebar.info("현재 테스트용 데이터를 사용합니다.")
-
-tab1, tab2, tab3, tab4 = st.tabs(["🔎 음식 검색","🍽️ 섭취 기록","📊 영양 분석","🥢 식단 만들기"])
-
-with tab1:
-    st.header("🔎 음식 검색")
-    search = st.text_input("음식 이름을 검색하세요.", placeholder="예: 크리스피 도넛 / 닭가슴살 / 계란")
-    if search:
-        results = [n for n in FOOD_DB if search.lower() in n.lower()]
-        if results:
-            st.success(f"{len(results)}개의 음식을 찾았습니다.")
-            for name in results:
-                f = FOOD_DB[name]
-                st.markdown(f'<div class="food-card"><h3>🍽️ {name}</h3><p>분류: {f["category"]}<br>기준 제공량: {f["serving"]}</p></div>', unsafe_allow_html=True)
-                a,b,c,d = st.columns(4)
-                a.metric("칼로리",f"{f['calories']} kcal")
-                b.metric("탄수화물",f"{f['carbs']} g")
-                c.metric("단백질",f"{f['protein']} g")
-                d.metric("지방",f"{f['fat']} g")
-                e,fcol,g = st.columns(3)
-                e.metric("당류",f"{f['sugar']} g")
-                fcol.metric("나트륨",f"{f['sodium']} mg")
-                g.metric("식이섬유",f"{f['fiber']} g")
-        else:
-            st.warning("해당 음식이 현재 데이터에 없습니다.")
-    else:
-        st.write("음식 이름의 일부만 입력해도 검색할 수 있습니다.")
-
-with tab2:
-    st.header("🍽️ 오늘 먹은 음식 기록")
-    st.markdown('<div class="info-box"><b>입력 예시</b><br>닭가슴살 150g, 계란 2개, 밥 1공기, 김치 한 줌</div>', unsafe_allow_html=True)
-    text = st.text_area("섭취한 음식", placeholder="예: 닭가슴살 150g, 계란 2개, 밥 1공기, 김치 한 줌", height=100)
-    if st.button("🍽️ 섭취량 분석하기", use_container_width=True):
-        if not text.strip():
-            st.warning("먹은 음식을 입력해주세요.")
-        else:
-            results, errors = parse_multiple(text)
-            if results:
-                st.subheader("🔎 입력 분석 결과")
-                for r in results:
-                    st.write(f"**{r['입력 내용']}** → {r['음식']} {r['섭취량(g)']}g")
-                    saved = r.copy()
-                    saved.pop("입력 내용", None)
-                    st.session_state.intake_list.append(saved)
-                st.success(f"{len(results)}개의 음식이 기록되었습니다.")
-            if errors:
-                st.warning("인식하지 못한 입력: " + ", ".join(errors))
-    st.divider()
-    if st.session_state.intake_list:
-        df = pd.DataFrame(st.session_state.intake_list)
-        cols = ["음식","섭취량(g)","칼로리(kcal)","탄수화물(g)","당류(g)","단백질(g)","지방(g)","나트륨(mg)","식이섬유(g)"]
-        st.dataframe(df[cols], use_container_width=True, hide_index=True)
-        if st.button("🗑️ 오늘의 기록 전체 삭제"):
-            st.session_state.intake_list = []
-            st.rerun()
-    else:
-        st.info("아직 오늘의 섭취 기록이 없습니다.")
-
-with tab3:
-    st.header("📊 오늘의 영양 분석")
-    t = total_nutrition()
-    cols = st.columns(3)
-    cols[0].metric("칼로리",f"{t['칼로리(kcal)']} kcal")
-    cols[1].metric("탄수화물",f"{t['탄수화물(g)']} g")
-    cols[2].metric("단백질",f"{t['단백질(g)']} g")
-    cols = st.columns(3)
-    cols[0].metric("지방",f"{t['지방(g)']} g")
-    cols[1].metric("당류",f"{t['당류(g)']} g")
-    cols[2].metric("식이섬유",f"{t['식이섬유(g)']} g")
-    chart = pd.DataFrame({"영양소":["탄수화물","단백질","지방","당류","식이섬유"],"섭취량(g)":[t["탄수화물(g)"],t["단백질(g)"],t["지방(g)"],t["당류(g)"],t["식이섬유(g)"]]})
-    st.bar_chart(chart.set_index("영양소"))
-    st.write(f"현재 기록된 나트륨: **{t['나트륨(mg)']} mg**")
-    st.progress(min(t["나트륨(mg)"]/2000,1.0))
-    st.caption("영양 기준은 일반적인 비교를 위한 참고값입니다.")
-
-with tab4:
-    st.header("🥢 맞춤 식단 만들기")
-    days = st.slider("식단 기간",1,7,3)
-    style = st.selectbox("식단 스타일",["균형 있게","가볍게","한식 중심","좋아하는 음식을 포함"])
-    meals = st.multiselect("식단을 만들 식사",["아침","점심","저녁","간식"],default=["아침","점심","저녁"])
-    if st.button("🥢 식단 생성하기", use_container_width=True):
-        if not meals:
-            st.warning("최소 한 가지 식사를 선택해주세요.")
-        else:
-            for day in range(1,days+1):
-                st.subheader(f"📜 {day}일차")
-                for meal_type in meals:
-                    if meal_type == "간식":
-                        st.markdown("**🍵 간식**")
-                        st.write(random.choice(GROUPS["간식"]))
-                        continue
-                    meal = make_meal(meal_type,style)
-                    st.markdown(f"**🍚 {meal_type}**")
-                    st.write(" · ".join(meal))
-                    kcal = sum(FOOD_DB[x]["calories"] for x in meal if x in FOOD_DB)
-                    protein = sum(FOOD_DB[x]["protein"] for x in meal if x in FOOD_DB)
-                    st.caption(f"구성 예시 기준 약 {kcal:.0f} kcal · 단백질 {protein:.1f}g")
-                st.divider()
-
-st.markdown('<div style="text-align:center;color:#755b48;padding:20px;">🍚 궁중 식탁 · Food Nutrition Analysis<br>식품 영양정보 확인 및 식단 계획을 위한 참고용 프로그램</div>', unsafe_allow_html=True)
