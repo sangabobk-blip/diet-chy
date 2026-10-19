@@ -1,95 +1,200 @@
 import streamlit as st
 import pandas as pd
-import re
-import os
-import random
+from urllib.parse import quote_plus
+from pathlib import Path
 
-st.set_page_config(page_title="궁중 식탁", page_icon="🍚", layout="wide")
+st.set_page_config(page_title="그린테이블", page_icon="🌿", layout="wide")
 
+# --- Simple, clean visual style ---
 st.markdown("""
 <style>
-.stApp { background:#f6f8f7; color:#24332d; }
-html, body, [class*="css"], p, label, div, span, input, textarea, button {
-    font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+html, body, [class*="css"], [data-testid="stAppViewContainer"] {
+    font-family: 'Noto Sans KR', sans-serif;
 }
-h1,h2,h3,h4 { font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif !important; color:#203b31 !important; letter-spacing:-0.5px; }
-.main .block-container { padding-top:2rem; padding-bottom:2rem; }
-.app-title { text-align:center; color:#203b31; font-size:36px; font-weight:750; letter-spacing:-1px; }
-.app-subtitle { text-align:center; color:#687a71; font-size:15px; margin-top:8px; }
-.app-line { height:1px; background:#dce5df; margin:20px 0 24px; }
-.info-box { background:#edf4ef; border:1px solid #d8e7dc; padding:14px 16px; border-radius:10px; color:#29483a; }
-.food-card,.meal-card,.farm-card { background:#fff; border:1px solid #e1e8e3; border-radius:12px; padding:16px 18px; margin-bottom:12px; }
-.meal-card h4,.farm-card h4 { margin:0 0 8px 0; }
-.stButton > button { background:#2f6650; color:white; border:0; border-radius:8px; padding:.55rem 1rem; font-weight:600; }
-.stButton > button:hover { background:#244f3d; color:white; border:0; }
-section[data-testid="stSidebar"] { background:#eef3ef; }
-[data-testid="stMetric"] { background:#fff; border:1px solid #e1e8e3; padding:12px; border-radius:10px; }
-a { color:#2f6650 !important; }
+.stApp { background: #f5f7f4; color: #24352d; }
+.block-container { max-width: 1180px; padding-top: 1.4rem; }
+h1, h2, h3 { color: #245c43; letter-spacing: -0.03em; }
+div.stButton > button {
+    border: 1px solid #d5e4da; border-radius: 14px; min-height: 3.1rem;
+    background: #ffffff; color: #245c43; font-weight: 600;
+}
+div.stButton > button:hover { border-color: #478767; background: #edf5ef; color: #194d35; }
+div[data-testid="stMetric"] {
+    background: white; border: 1px solid #e1e9e3; padding: 14px;
+    border-radius: 14px;
+}
+div[data-testid="stAlert"] { border-radius: 12px; }
+.gt-sub { color: #66766d; font-size: 0.97rem; }
+.gt-card {
+    background: white; border: 1px solid #e1e9e3; border-radius: 16px;
+    padding: 18px 20px; margin: 8px 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# 테스트용 데이터. food_data.csv가 있으면 CSV를 우선 사용한다.
-FOOD_DB = {
-    "흰밥":{"category":"밥류","serving":"100g","unit_g":100,"calories":130,"carbs":28,"sugar":0.1,"protein":2.7,"fat":0.3,"sodium":1,"fiber":0.4},
-    "현미밥":{"category":"밥류","serving":"100g","unit_g":100,"calories":111,"carbs":23,"sugar":0.4,"protein":2.6,"fat":0.9,"sodium":1,"fiber":1.8},
-    "김밥":{"category":"밥류","serving":"1줄","unit_g":250,"calories":450,"carbs":70,"sugar":5,"protein":12,"fat":12,"sodium":900,"fiber":3},
-    "삼각김밥 참치마요":{"category":"편의식","serving":"1개","unit_g":120,"calories":230,"carbs":34,"sugar":2,"protein":6,"fat":8,"sodium":500,"fiber":1},
-    "닭가슴살":{"category":"육류","serving":"100g","unit_g":100,"calories":165,"carbs":0,"sugar":0,"protein":31,"fat":3.6,"sodium":74,"fiber":0},
-    "계란":{"category":"달걀류","serving":"1개","unit_g":50,"calories":72,"carbs":0.4,"sugar":0.2,"protein":6.3,"fat":4.8,"sodium":71,"fiber":0},
-    "두부":{"category":"콩류","serving":"100g","unit_g":100,"calories":76,"carbs":1.9,"sugar":0.5,"protein":8,"fat":4.8,"sodium":7,"fiber":0.3},
-    "고등어":{"category":"생선류","serving":"100g","unit_g":100,"calories":205,"carbs":0,"sugar":0,"protein":19,"fat":14,"sodium":90,"fiber":0},
-    "연어":{"category":"생선류","serving":"100g","unit_g":100,"calories":208,"carbs":0,"sugar":0,"protein":20,"fat":13,"sodium":59,"fiber":0},
-    "김치":{"category":"반찬","serving":"100g","unit_g":100,"calories":18,"carbs":3.5,"sugar":1.5,"protein":1.1,"fat":0.3,"sodium":550,"fiber":2.4},
-    "브로콜리":{"category":"채소","serving":"100g","unit_g":100,"calories":34,"carbs":7,"sugar":1.7,"protein":2.8,"fat":0.4,"sodium":33,"fiber":2.6},
-    "상추":{"category":"채소","serving":"50g","unit_g":50,"calories":8,"carbs":1.5,"sugar":0.5,"protein":0.7,"fat":0.1,"sodium":8,"fiber":0.7},
-    "방울토마토":{"category":"채소","serving":"100g","unit_g":100,"calories":18,"carbs":3.9,"sugar":2.6,"protein":0.9,"fat":0.2,"sodium":5,"fiber":1.2},
-    "시금치":{"category":"채소","serving":"100g","unit_g":100,"calories":23,"carbs":3.6,"sugar":0.4,"protein":2.9,"fat":0.4,"sodium":79,"fiber":2.2},
-    "바나나":{"category":"과일","serving":"1개","unit_g":100,"calories":89,"carbs":23,"sugar":12,"protein":1.1,"fat":0.3,"sodium":1,"fiber":2.6},
-    "사과":{"category":"과일","serving":"1개","unit_g":200,"calories":104,"carbs":28,"sugar":21,"protein":0.5,"fat":0.3,"sodium":2,"fiber":4.8},
-    "딸기":{"category":"과일","serving":"100g","unit_g":100,"calories":32,"carbs":7.7,"sugar":4.9,"protein":0.7,"fat":0.3,"sodium":1,"fiber":2},
-    "고구마":{"category":"구황작물","serving":"100g","unit_g":100,"calories":86,"carbs":20,"sugar":4.2,"protein":1.6,"fat":0.1,"sodium":55,"fiber":3},
-    "감자":{"category":"구황작물","serving":"100g","unit_g":100,"calories":77,"carbs":17,"sugar":0.8,"protein":2,"fat":0.1,"sodium":6,"fiber":2.2},
-    "요거트":{"category":"유제품","serving":"100g","unit_g":100,"calories":61,"carbs":4.7,"sugar":4.7,"protein":3.5,"fat":3.3,"sodium":46,"fiber":0},
-    "우유":{"category":"유제품","serving":"200ml","unit_g":200,"calories":122,"carbs":9.4,"sugar":9.4,"protein":6.4,"fat":6.6,"sodium":86,"fiber":0},
-    "라면":{"category":"면류","serving":"1봉","unit_g":120,"calories":500,"carbs":70,"sugar":3,"protein":10,"fat":20,"sodium":1800,"fiber":2},
-    "샌드위치":{"category":"간편식","serving":"1개","unit_g":180,"calories":350,"carbs":40,"sugar":5,"protein":18,"fat":13,"sodium":700,"fiber":3},
-    "월남쌈":{"category":"간편식","serving":"1개","unit_g":50,"calories":55,"carbs":8,"sugar":1,"protein":2,"fat":1.5,"sodium":80,"fiber":1},
-    "크리스피 도넛":{"category":"디저트","serving":"1개","unit_g":50,"calories":190,"carbs":22,"sugar":10,"protein":2,"fat":11,"sodium":120,"fiber":1},
-    "초콜릿 도넛":{"category":"디저트","serving":"1개","unit_g":60,"calories":250,"carbs":30,"sugar":17,"protein":3,"fat":13,"sodium":180,"fiber":1},
-    "아이스크림":{"category":"디저트","serving":"100g","unit_g":100,"calories":207,"carbs":24,"sugar":21,"protein":3.5,"fat":11,"sodium":80,"fiber":0},
-    "아메리카노":{"category":"음료","serving":"355ml","unit_g":355,"calories":10,"carbs":1,"sugar":0,"protein":0.5,"fat":0,"sodium":5,"fiber":0},
-    "카페라떼":{"category":"음료","serving":"355ml","unit_g":355,"calories":180,"carbs":18,"sugar":15,"protein":9,"fat":7,"sodium":120,"fiber":0}
-}
+# State
+if "active_area" not in st.session_state:
+    st.session_state.active_area = "홈"
+if "intake_records" not in st.session_state:
+    st.session_state.intake_records = []
 
-def load_food_data():
-    if not os.path.exists("food_data.csv"):
-        return FOOD_DB
-    try:
-        df = pd.read_csv("food_data.csv", encoding="utf-8-sig")
-        required = ["식품명","중량(g)","칼로리(kcal)","탄수화물(g)","단백질(g)","지방(g)","나트륨(mg)"]
-        if not all(c in df.columns for c in required):
-            return FOOD_DB
-        db = {}
-        for _, row in df.iterrows():
-            name = str(row["식품명"]).strip()
-            if not name:
-                continue
-            try:
-                weight = float(row["중량(g)"])
-                db[name] = {
-                    "category":str(row.get("식품분류","기타")),
-                    "serving":str(row.get("1회 제공량",f"{weight}g")),
-                    "unit_g":weight,
-                    "calories":float(row["칼로리(kcal)"]),
-                    "carbs":float(row["탄수화물(g)"]),
-                    "sugar":float(row.get("당류(g)",0)),
-                    "protein":float(row["단백질(g)"]),
-                    "fat":float(row["지방(g)"]),
-                    "sodium":float(row["나트륨(mg)"]),
-                    "fiber":float(row.get("식이섬유(g)",0))
-                }
-            except (ValueError, TypeError):
-                continue
-        return db if db else FOOD_DB
-    except Exception:
-        return FOOD_DB
+FOODS = {
+    "흰밥 1공기 (210g)": {"kcal": 273, "carbs": 59, "protein": 5.7, "fat": 0.6, "sodium": 2},
+    "현미밥 1공기 (210g)": {"kcal": 233, "carbs": 48.3, "protein": 5.5, "fat": 1.9, "sodium": 2},
+    "닭가슴살 100g": {"kcal": 165, "carbs": 0, "protein": 31, "fat": 3.6, "sodium": 74},
+    "계란 1개": {"kcal": 72, "carbs": 0.4, "protein": 6.3, "fat": 4.8, "sodium": 71},
+    "두부 100g": {"kcal": 76, "carbs": 1.9, "protein": 8, "fat": 4.8, "sodium": 7},
+    "브로콜리 100g": {"kcal": 34, "carbs": 7, "protein": 2.8, "fat": 0.4, "sodium": 33},
+    "사과 1개 (200g)": {"kcal": 104, "carbs": 28, "protein": 0.5, "fat": 0.3, "sodium": 2},
+    "바나나 1개 (100g)": {"kcal": 89, "carbs": 23, "protein": 1.1, "fat": 0.3, "sodium": 1},
+    "김치 100g": {"kcal": 18, "carbs": 3.5, "protein": 1.1, "fat": 0.3, "sodium": 550},
+    "우유 200ml": {"kcal": 122, "carbs": 9.4, "protein": 6.4, "fat": 6.6, "sodium": 86},
+    "요거트 100g": {"kcal": 61, "carbs": 4.7, "protein": 3.5, "fat": 3.3, "sodium": 46},
+    "고구마 100g": {"kcal": 86, "carbs": 20, "protein": 1.6, "fat": 0.1, "sodium": 55},
+}
+RECIPES = {
+    "브로콜리 수프와 통밀빵": {"kcal": 320, "protein": 11, "description": "브로콜리·우유·양파를 부드럽게 끓인 수프와 통밀빵", "ingredients": "브로콜리, 우유, 양파, 통밀빵"},
+    "닭가슴살 채소 비빔밥": {"kcal": 480, "protein": 32, "description": "현미밥에 닭가슴살과 여러 색 채소를 곁들인 한 그릇 식사", "ingredients": "현미밥, 닭가슴살, 당근, 시금치, 상추, 고추장"},
+    "두부 스테이크와 구운 채소": {"kcal": 390, "protein": 21, "description": "노릇하게 구운 두부 스테이크와 제철 채소", "ingredients": "두부, 브로콜리, 파프리카, 버섯, 올리브유"},
+    "연어 덮밥": {"kcal": 510, "protein": 29, "description": "구운 연어와 채소를 밥 위에 올린 덮밥", "ingredients": "연어, 밥, 오이, 아보카도, 김"},
+    "계란 채소 샌드위치": {"kcal": 340, "protein": 16, "description": "삶은 달걀과 신선한 채소를 넣은 간편 샌드위치", "ingredients": "통밀빵, 달걀, 상추, 토마토, 요거트 소스"},
+    "고구마와 요거트 볼": {"kcal": 250, "protein": 9, "description": "찐 고구마와 플레인 요거트, 제철 과일을 곁들인 간식", "ingredients": "고구마, 플레인 요거트, 딸기 또는 바나나"},
+    "버섯 두부 덮밥": {"kcal": 420, "protein": 18, "description": "버섯과 두부를 볶아 밥 위에 올린 균형 잡힌 한 끼", "ingredients": "밥, 두부, 버섯, 양파, 간장"},
+    "토마토 달걀 볶음과 밥": {"kcal": 400, "protein": 17, "description": "토마토와 달걀을 가볍게 볶아 밥과 함께 먹는 메뉴", "ingredients": "토마토, 달걀, 밥, 쪽파"},
+}
+SMARTFARM_LINKS = [
+    ("스마트팜코리아", "스마트팜 정책·기술·교육 관련 정보를 찾아볼 수 있는 공식 플랫폼", "https://www.smartfarmkorea.net/"),
+    ("농림수산식품교육문화정보원", "농업 정보화와 농업 교육 관련 사업·자료 확인", "https://www.epis.or.kr/"),
+    ("탄탄대로", "청년농 및 농업 창업 관련 정보 탐색", "https://www.farmmap.kr/"),
+    ("농촌진흥청", "작물 재배기술, 농업 연구자료, 친환경 재배 정보", "https://www.rda.go.kr/"),
+]
+
+def show_home_image():
+    img = Path(__file__).with_name("kitchen_home.png")
+    if img.exists():
+        st.image(str(img), use_container_width=True)
+    else:
+        st.warning("주방 이미지 파일을 찾지 못했습니다. GitHub 저장소에 main.py와 kitchen_home.png를 함께 올려주세요.")
+
+st.markdown("# 🌿 그린테이블")
+st.markdown('<p class="gt-sub">건강한 식습관이 더 나은 내일을 만듭니다.</p>', unsafe_allow_html=True)
+
+# The kitchen image acts as the visual home screen; reliable click targets are buttons directly below it.
+if st.session_state.active_area == "홈":
+    show_home_image()
+    st.markdown("### 주방에서 원하는 기능을 선택하세요")
+    st.caption("사진 속 물건을 떠올리며 아래 버튼을 눌러 기능을 열어보세요.")
+    c1, c2, c3, c4 = st.columns(4)
+    if c1.button("🧊 냉장고 · 칼로리 확인", use_container_width=True):
+        st.session_state.active_area = "냉장고"
+        st.rerun()
+    if c2.button("🍱 도시락 · 식단 추천", use_container_width=True):
+        st.session_state.active_area = "도시락"
+        st.rerun()
+    if c3.button("🪴 식물 · 스마트팜", use_container_width=True):
+        st.session_state.active_area = "식물"
+        st.rerun()
+    if c4.button("🧑 건강 캐릭터 · BMI", use_container_width=True):
+        st.session_state.active_area = "건강"
+        st.rerun()
+    st.markdown("---")
+    st.markdown("#### 그린테이블에서 할 수 있는 일")
+    a, b, c, d = st.columns(4)
+    a.markdown("**영양 확인**\n\n음식별 열량과 주요 영양소")
+    b.markdown("**식단 추천**\n\n요리 이름과 한 끼 구성")
+    c.markdown("**지속가능한 농업**\n\n친환경 채소와 스마트팜 정보")
+    d.markdown("**건강 정보**\n\nBMI 계산과 해석 안내")
+
+elif st.session_state.active_area == "냉장고":
+    if st.button("← 주방으로 돌아가기"): st.session_state.active_area = "홈"; st.rerun()
+    st.header("🧊 냉장고 | 음식 영양소 확인")
+    st.write("음식과 먹은 양을 선택하면 대략적인 영양 정보를 계산합니다.")
+    food = st.selectbox("음식 선택", list(FOODS.keys()))
+    quantity = st.number_input("몇 인분/개를 먹었나요?", min_value=0.25, max_value=20.0, value=1.0, step=0.25)
+    if st.button("영양소 계산하기", type="primary"):
+        f = FOODS[food]
+        st.subheader(f"{food} · {quantity:g}배 기준")
+        cols = st.columns(4)
+        cols[0].metric("열량", f"{f['kcal']*quantity:.0f} kcal")
+        cols[1].metric("탄수화물", f"{f['carbs']*quantity:.1f} g")
+        cols[2].metric("단백질", f"{f['protein']*quantity:.1f} g")
+        cols[3].metric("지방", f"{f['fat']*quantity:.1f} g")
+        st.metric("나트륨", f"{f['sodium']*quantity:.0f} mg")
+        st.caption("값은 대표적인 식품의 대략적인 예시입니다. 실제 제품·조리법·중량에 따라 달라질 수 있습니다.")
+    st.markdown("#### 빠른 음식 검색")
+    query = st.text_input("음식 이름 일부 입력")
+    if query:
+        matches = [x for x in FOODS if query.strip() in x]
+        if matches: st.write("검색 결과: " + " · ".join(matches))
+        else: st.info("예시 데이터에서 찾지 못했습니다. 음식 데이터베이스를 추가하면 검색 범위를 넓힐 수 있습니다.")
+
+elif st.session_state.active_area == "도시락":
+    if st.button("← 주방으로 돌아가기"): st.session_state.active_area = "홈"; st.rerun()
+    st.header("🍱 도시락 | 요리 중심 식단 추천")
+    st.write("재료만 나열하지 않고 실제 요리 이름과 간단한 설명을 제공합니다.")
+    days = st.selectbox("식단 기간", [1, 3, 5, 7], index=1)
+    style = st.selectbox("식단 스타일", ["균형 있게", "한식 중심", "채소를 다양하게", "간편식 중심"])
+    if st.button("식단 만들기", type="primary"):
+        import random
+        recipes = list(RECIPES.items())
+        random.shuffle(recipes)
+        for day in range(days):
+            st.markdown(f"### {day+1}일차")
+            daily = recipes[(day*3) % len(recipes):(day*3) % len(recipes)+3]
+            if len(daily) < 3: daily += recipes[:3-len(daily)]
+            meal_names = ["아침", "점심", "저녁"]
+            cols = st.columns(3)
+            for col, (meal_name, (name, data)) in zip(cols, zip(meal_names, daily)):
+                with col:
+                    st.markdown('<div class="gt-card">', unsafe_allow_html=True)
+                    st.markdown(f"**{meal_name} · {name}**")
+                    st.write(data["description"])
+                    st.caption(f"주요 재료: {data['ingredients']}")
+                    st.metric("예상 열량", f"{data['kcal']} kcal")
+                    st.caption(f"단백질 약 {data['protein']} g · 1인분 예시")
+                    st.markdown("</div>", unsafe_allow_html=True)
+            st.divider()
+    st.caption("식단은 예시이며 개인의 성장 단계, 활동량, 건강 상태에 따라 필요한 양은 다릅니다. 칼로리를 지나치게 제한하는 용도로 사용하지 마세요.")
+
+elif st.session_state.active_area == "식물":
+    if st.button("← 주방으로 돌아가기"): st.session_state.active_area = "홈"; st.rerun()
+    st.header("🪴 식물 | 친환경 채소와 스마트팜")
+    st.write("지역과 관심 분야를 입력해 주변 판매처 및 농업 기업을 찾아보세요.")
+    region = st.text_input("지역 또는 시·군·구", placeholder="예: 대전 유성구")
+    interest = st.selectbox("관심 분야", ["친환경 채소 판매처", "스마트팜 업체", "수직농장·식물공장", "스마트팜 교육·체험", "청년농·농업 창업"])
+    if region.strip():
+        q = quote_plus(f"{region} {interest}")
+        st.markdown(f"[네이버 지도에서 검색하기](https://map.naver.com/p/search/{q})")
+        st.markdown(f"[네이버 검색에서 관련 업체 찾기](https://search.naver.com/search.naver?query={q})")
+        st.markdown(f"[구글 검색에서 관련 업체 찾기](https://www.google.com/search?q={q})")
+    else:
+        st.info("지역을 입력하면 해당 지역을 기준으로 검색할 수 있는 링크가 나타납니다.")
+    st.markdown("#### 농업·스마트팜 관련 공식 사이트")
+    for name, description, url in SMARTFARM_LINKS:
+        st.markdown(f"**[{name}]({url})**  \n{description}")
+    st.caption("검색 결과의 영업 여부, 인증 상태, 구매 가능 여부는 각 업체에 직접 확인하세요. 이 앱은 업체에 자동으로 연락하거나 구매를 진행하지 않습니다.")
+
+elif st.session_state.active_area == "건강":
+    if st.button("← 주방으로 돌아가기"): st.session_state.active_area = "홈"; st.rerun()
+    st.header("🧑 나의 건강 정보")
+    st.write("키와 몸무게를 입력해 BMI를 계산할 수 있습니다.")
+    age = st.number_input("나이", min_value=5, max_value=100, value=17)
+    height_cm = st.number_input("키(cm)", min_value=80.0, max_value=230.0, value=165.0, step=0.5)
+    weight_kg = st.number_input("몸무게(kg)", min_value=15.0, max_value=250.0, value=60.0, step=0.5)
+    if st.button("BMI 계산", type="primary"):
+        bmi = weight_kg / ((height_cm/100) ** 2)
+        st.metric("BMI", f"{bmi:.1f}")
+        if age < 18:
+            st.info("18세 미만은 성인 BMI 기준만으로 체중 상태를 판단하지 않습니다. 나이와 성별에 따른 성장도표 백분위수 등을 함께 고려해야 하므로, 이 값만으로 적정 체중이나 감량 필요성을 판단하지 마세요.")
+        else:
+            st.info("BMI는 체중(kg) ÷ 키(m)²로 계산하는 참고 지표이며 근육량이나 개인의 건강 상태를 직접 측정하지 않습니다. 필요하면 의료 전문가와 함께 해석하세요.")
+    st.markdown("#### 함께 기억할 점")
+    st.write("적정 체중은 하나의 숫자로 단정하기 어렵습니다. 균형 잡힌 식사, 충분한 수면, 규칙적인 일상 등 전반적인 건강 습관을 함께 살펴보세요.")
+
+st.markdown("---")
+if st.session_state.active_area != "홈":
+    if st.button("🏠 홈 화면으로", use_container_width=True):
+        st.session_state.active_area = "홈"
+        st.rerun()
+st.caption("그린테이블 · 영양 정보와 식단은 참고용이며, 실제 식품의 영양성분과 건강 판단은 공식 자료 및 전문가의 안내를 확인하세요.")
