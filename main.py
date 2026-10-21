@@ -3,9 +3,11 @@ import pandas as pd
 from urllib.parse import quote_plus
 from pathlib import Path
 
+# Clickable image component: pip install streamlit-image-coordinates
+from streamlit_image_coordinates import streamlit_image_coordinates
+
 st.set_page_config(page_title="그린테이블", page_icon="🌿", layout="wide")
 
-# --- Simple, clean visual style ---
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
@@ -33,7 +35,6 @@ div[data-testid="stAlert"] { border-radius: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
-# State
 if "active_area" not in st.session_state:
     st.session_state.active_area = "홈"
 if "intake_records" not in st.session_state:
@@ -53,6 +54,7 @@ FOODS = {
     "요거트 100g": {"kcal": 61, "carbs": 4.7, "protein": 3.5, "fat": 3.3, "sodium": 46},
     "고구마 100g": {"kcal": 86, "carbs": 20, "protein": 1.6, "fat": 0.1, "sodium": 55},
 }
+
 RECIPES = {
     "브로콜리 수프와 통밀빵": {"kcal": 320, "protein": 11, "description": "브로콜리·우유·양파를 부드럽게 끓인 수프와 통밀빵", "ingredients": "브로콜리, 우유, 양파, 통밀빵"},
     "닭가슴살 채소 비빔밥": {"kcal": 480, "protein": 32, "description": "현미밥에 닭가슴살과 여러 색 채소를 곁들인 한 그릇 식사", "ingredients": "현미밥, 닭가슴살, 당근, 시금치, 상추, 고추장"},
@@ -63,6 +65,7 @@ RECIPES = {
     "버섯 두부 덮밥": {"kcal": 420, "protein": 18, "description": "버섯과 두부를 볶아 밥 위에 올린 균형 잡힌 한 끼", "ingredients": "밥, 두부, 버섯, 양파, 간장"},
     "토마토 달걀 볶음과 밥": {"kcal": 400, "protein": 17, "description": "토마토와 달걀을 가볍게 볶아 밥과 함께 먹는 메뉴", "ingredients": "토마토, 달걀, 밥, 쪽파"},
 }
+
 SMARTFARM_LINKS = [
     ("스마트팜코리아", "스마트팜 정책·기술·교육 관련 정보를 찾아볼 수 있는 공식 플랫폼", "https://www.smartfarmkorea.net/"),
     ("농림수산식품교육문화정보원", "농업 정보화와 농업 교육 관련 사업·자료 확인", "https://www.epis.or.kr/"),
@@ -70,34 +73,84 @@ SMARTFARM_LINKS = [
     ("농촌진흥청", "작물 재배기술, 농업 연구자료, 친환경 재배 정보", "https://www.rda.go.kr/"),
 ]
 
-def show_home_image():
-    img = Path(__file__).with_name("kitchen_home.png")
-    if img.exists():
-        st.image(str(img), use_container_width=True)
-    else:
-        st.warning("주방 이미지 파일을 찾지 못했습니다. GitHub 저장소에 main.py와 kitchen_home.png를 함께 올려주세요.")
+def go_home():
+    st.session_state.active_area = "홈"
+
+def show_back_button():
+    if st.button("← 주방으로 돌아가기", key=f"back_{st.session_state.active_area}"):
+        go_home()
+        st.rerun()
+
+def show_clickable_home():
+    image_path = Path(__file__).with_name("kitchen_home.png")
+    if not image_path.exists():
+        st.error("kitchen_home.png 파일을 찾지 못했습니다. main.py와 같은 GitHub 폴더에 업로드해 주세요.")
+        return
+
+    st.markdown("### 주방 속 물건을 직접 클릭해 보세요")
+    st.caption("물체가 있는 위치를 클릭하면 해당 기능이 열립니다. 클릭 위치가 맞지 않으면 아래 기능 버튼도 이용할 수 있습니다.")
+
+    # The returned x/y coordinates refer to the displayed image.
+    clicked = streamlit_image_coordinates(
+        str(image_path),
+        key="greentable_kitchen_click",
+        width=1100,
+    )
+
+    if clicked:
+        x = clicked.get("x")
+        y = clicked.get("y")
+        if x is not None and y is not None:
+            # Hotspots are percentages of the displayed image dimensions.
+            # These defaults are intended for a wide kitchen image and may need adjustment.
+            image_width = 1100
+            image_height = None
+            try:
+                from PIL import Image
+                with Image.open(image_path) as im:
+                    image_height = int(im.height * image_width / im.width)
+            except Exception:
+                image_height = 400
+
+            xp = x / image_width
+            yp = y / image_height
+
+            # Approximate regions: refrigerator left, lunch/meal counter center,
+            # plants on the right, and person character at far right.
+            if xp <= 0.30 and 0.10 <= yp <= 0.95:
+                st.session_state.active_area = "냉장고"
+                st.rerun()
+            elif 0.30 < xp <= 0.67 and 0.48 <= yp <= 0.95:
+                st.session_state.active_area = "도시락"
+                st.rerun()
+            elif 0.58 < xp <= 0.84 and 0.08 <= yp <= 0.62:
+                st.session_state.active_area = "식물"
+                st.rerun()
+            elif xp > 0.80 and yp >= 0.25:
+                st.session_state.active_area = "건강"
+                st.rerun()
+            else:
+                st.info("기능 연결 영역 밖을 클릭했어요. 냉장고, 조리대의 도시락, 식물, 사람 캐릭터 근처를 클릭해 주세요.")
+
+    # Accessible fallback buttons; these are not required for image interaction.
+    with st.expander("클릭이 잘 되지 않나요? 기능을 직접 선택할 수 있어요"):
+        c1, c2, c3, c4 = st.columns(4)
+        options = [
+            (c1, "🧊 냉장고", "냉장고"),
+            (c2, "🍱 도시락", "도시락"),
+            (c3, "🌱 식물", "식물"),
+            (c4, "🧑 건강 정보", "건강"),
+        ]
+        for col, label, area in options:
+            if col.button(label, use_container_width=True, key=f"fallback_{area}"):
+                st.session_state.active_area = area
+                st.rerun()
 
 st.markdown("# 🌿 그린테이블")
 st.markdown('<p class="gt-sub">건강한 식습관이 더 나은 내일을 만듭니다.</p>', unsafe_allow_html=True)
 
-# The kitchen image acts as the visual home screen; reliable click targets are buttons directly below it.
 if st.session_state.active_area == "홈":
-    show_home_image()
-    st.markdown("### 주방에서 원하는 기능을 선택하세요")
-    st.caption("사진 속 물건을 떠올리며 아래 버튼을 눌러 기능을 열어보세요.")
-    c1, c2, c3, c4 = st.columns(4)
-    if c1.button("🧊 냉장고 · 칼로리 확인", use_container_width=True):
-        st.session_state.active_area = "냉장고"
-        st.rerun()
-    if c2.button("🍱 도시락 · 식단 추천", use_container_width=True):
-        st.session_state.active_area = "도시락"
-        st.rerun()
-    if c3.button("🪴 식물 · 스마트팜", use_container_width=True):
-        st.session_state.active_area = "식물"
-        st.rerun()
-    if c4.button("🧑 건강 캐릭터 · BMI", use_container_width=True):
-        st.session_state.active_area = "건강"
-        st.rerun()
+    show_clickable_home()
     st.markdown("---")
     st.markdown("#### 그린테이블에서 할 수 있는 일")
     a, b, c, d = st.columns(4)
@@ -107,7 +160,7 @@ if st.session_state.active_area == "홈":
     d.markdown("**건강 정보**\n\nBMI 계산과 해석 안내")
 
 elif st.session_state.active_area == "냉장고":
-    if st.button("← 주방으로 돌아가기"): st.session_state.active_area = "홈"; st.rerun()
+    show_back_button()
     st.header("🧊 냉장고 | 음식 영양소 확인")
     st.write("음식과 먹은 양을 선택하면 대략적인 영양 정보를 계산합니다.")
     food = st.selectbox("음식 선택", list(FOODS.keys()))
@@ -126,11 +179,13 @@ elif st.session_state.active_area == "냉장고":
     query = st.text_input("음식 이름 일부 입력")
     if query:
         matches = [x for x in FOODS if query.strip() in x]
-        if matches: st.write("검색 결과: " + " · ".join(matches))
-        else: st.info("예시 데이터에서 찾지 못했습니다. 음식 데이터베이스를 추가하면 검색 범위를 넓힐 수 있습니다.")
+        if matches:
+            st.write("검색 결과: " + " · ".join(matches))
+        else:
+            st.info("예시 데이터에서 찾지 못했습니다. 음식 데이터베이스를 추가하면 검색 범위를 넓힐 수 있습니다.")
 
 elif st.session_state.active_area == "도시락":
-    if st.button("← 주방으로 돌아가기"): st.session_state.active_area = "홈"; st.rerun()
+    show_back_button()
     st.header("🍱 도시락 | 요리 중심 식단 추천")
     st.write("재료만 나열하지 않고 실제 요리 이름과 간단한 설명을 제공합니다.")
     days = st.selectbox("식단 기간", [1, 3, 5, 7], index=1)
@@ -141,11 +196,10 @@ elif st.session_state.active_area == "도시락":
         random.shuffle(recipes)
         for day in range(days):
             st.markdown(f"### {day+1}일차")
-            daily = recipes[(day*3) % len(recipes):(day*3) % len(recipes)+3]
-            if len(daily) < 3: daily += recipes[:3-len(daily)]
+            daily = [recipes[(day * 3 + i) % len(recipes)] for i in range(3)]
             meal_names = ["아침", "점심", "저녁"]
             cols = st.columns(3)
-            for col, (meal_name, (name, data)) in zip(cols, zip(meal_names, daily)):
+            for col, meal_name, (name, data) in zip(cols, meal_names, daily):
                 with col:
                     st.markdown('<div class="gt-card">', unsafe_allow_html=True)
                     st.markdown(f"**{meal_name} · {name}**")
@@ -158,7 +212,7 @@ elif st.session_state.active_area == "도시락":
     st.caption("식단은 예시이며 개인의 성장 단계, 활동량, 건강 상태에 따라 필요한 양은 다릅니다. 칼로리를 지나치게 제한하는 용도로 사용하지 마세요.")
 
 elif st.session_state.active_area == "식물":
-    if st.button("← 주방으로 돌아가기"): st.session_state.active_area = "홈"; st.rerun()
+    show_back_button()
     st.header("🪴 식물 | 친환경 채소와 스마트팜")
     st.write("지역과 관심 분야를 입력해 주변 판매처 및 농업 기업을 찾아보세요.")
     region = st.text_input("지역 또는 시·군·구", placeholder="예: 대전 유성구")
@@ -173,17 +227,17 @@ elif st.session_state.active_area == "식물":
     st.markdown("#### 농업·스마트팜 관련 공식 사이트")
     for name, description, url in SMARTFARM_LINKS:
         st.markdown(f"**[{name}]({url})**  \n{description}")
-    st.caption("검색 결과의 영업 여부, 인증 상태, 구매 가능 여부는 각 업체에 직접 확인하세요. 이 앱은 업체에 자동으로 연락하거나 구매를 진행하지 않습니다.")
+    st.caption("검색 결과의 영업 여부, 인증 상태, 구매 가능 여부는 각 업체에 직접 확인하세요.")
 
 elif st.session_state.active_area == "건강":
-    if st.button("← 주방으로 돌아가기"): st.session_state.active_area = "홈"; st.rerun()
+    show_back_button()
     st.header("🧑 나의 건강 정보")
     st.write("키와 몸무게를 입력해 BMI를 계산할 수 있습니다.")
     age = st.number_input("나이", min_value=5, max_value=100, value=17)
     height_cm = st.number_input("키(cm)", min_value=80.0, max_value=230.0, value=165.0, step=0.5)
     weight_kg = st.number_input("몸무게(kg)", min_value=15.0, max_value=250.0, value=60.0, step=0.5)
     if st.button("BMI 계산", type="primary"):
-        bmi = weight_kg / ((height_cm/100) ** 2)
+        bmi = weight_kg / ((height_cm / 100) ** 2)
         st.metric("BMI", f"{bmi:.1f}")
         if age < 18:
             st.info("18세 미만은 성인 BMI 기준만으로 체중 상태를 판단하지 않습니다. 나이와 성별에 따른 성장도표 백분위수 등을 함께 고려해야 하므로, 이 값만으로 적정 체중이나 감량 필요성을 판단하지 마세요.")
@@ -194,7 +248,7 @@ elif st.session_state.active_area == "건강":
 
 st.markdown("---")
 if st.session_state.active_area != "홈":
-    if st.button("🏠 홈 화면으로", use_container_width=True):
-        st.session_state.active_area = "홈"
+    if st.button("🏠 홈 화면으로", use_container_width=True, key="home_bottom"):
+        go_home()
         st.rerun()
 st.caption("그린테이블 · 영양 정보와 식단은 참고용이며, 실제 식품의 영양성분과 건강 판단은 공식 자료 및 전문가의 안내를 확인하세요.")
