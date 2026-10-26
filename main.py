@@ -26,148 +26,68 @@ if "suggestion" not in st.session_state:
     st.session_state.suggestion = ""
 
 # -----------------------------
-# 디자인
+# 디자인: 단순한 다크 브라운 + 골드
 # -----------------------------
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+:root { --bg:#171310; --gold:#c8a66b; --line:#59452f; --text:#eee6da; }
+html, body, [class*="css"] { font-family:'Noto Sans KR',sans-serif; }
+.stApp { background:var(--bg); color:var(--text); }
+[data-testid="stHeader"] { background:rgba(23,19,16,.92); }
+.block-container { max-width:1180px; padding-top:1.2rem; }
+h1,h2,h3,.brand,.kicker { font-family:'Cormorant Garamond',serif !important; color:#f1e5d3 !important; }
+.brand { font-size:clamp(1.8rem,3.5vw,2.8rem); letter-spacing:.12em; line-height:1.1; }
+.kicker { color:var(--gold) !important; font-size:.8rem; letter-spacing:.2em; }
+p,li,label,[data-testid="stWidgetLabel"] { color:var(--text); }
+a { color:#e0c28c !important; }
+div.stButton>button { width:100%; min-height:2.8rem; border:1px solid #59452f; border-radius:3px; background:#241d17; color:#f0e4d2; transition:all .2s ease; }
+div.stButton>button:hover { border-color:var(--gold); background:#30251c; color:#fff2d8; }
+[data-testid="stMetric"] { background:#241d17; border:1px solid var(--line); border-radius:4px; padding:.7rem; }
+hr { border-color:var(--line) !important; }
+footer { visibility:hidden; }
 
-:root {
-    --bg: #171310;
-    --panel: #241d17;
-    --gold: #c8a66b;
-    --line: #59452f;
-    --text: #eee6da;
-    --muted: #b8aa98;
+/* 화면 왼쪽 가장자리에 마우스를 올리면 나타나는 반투명 메뉴 */
+.side-menu-trigger {
+  position:fixed; left:0; top:34%; width:18px; height:180px;
+  z-index:10001; cursor:pointer;
+  background:rgba(200,166,107,.18);
+  border:1px solid rgba(200,166,107,.35); border-left:0;
+  border-radius:0 5px 5px 0;
 }
-
-html, body, [class*="css"] {
-    font-family: 'Noto Sans KR', sans-serif;
+.side-menu-trigger::after {
+  content:'MENU'; position:absolute; left:2px; top:50%;
+  writing-mode:vertical-rl; transform:translateY(-50%);
+  color:#c8a66b; font-size:9px; letter-spacing:2px;
 }
-.stApp {
-    background: var(--bg);
-    color: var(--text);
+.side-menu-panel {
+  position:fixed; top:0; bottom:0; left:-310px; width:290px;
+  z-index:10000; box-sizing:border-box; padding:90px 24px 24px;
+  background:rgba(28,22,17,.88); backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  border-right:1px solid rgba(200,166,107,.35);
+  box-shadow:10px 0 35px rgba(0,0,0,.2);
+  transition:left .28s ease;
 }
-[data-testid="stHeader"] {
-    background: rgba(23,19,16,.94);
+.side-menu-trigger:hover ~ .side-menu-panel,
+.side-menu-panel:hover { left:0; }
+.side-menu-panel .menu-eyebrow {
+  color:#c8a66b; font-size:11px; letter-spacing:3px; margin-bottom:10px;
 }
-.block-container {
-    max-width: 1240px;
-    padding-top: 1.2rem;
+.side-menu-panel .menu-heading {
+  color:#f1e5d3; font-family:'Cormorant Garamond',serif;
+  font-size:30px; margin-bottom:28px;
 }
-h1, h2, h3, .brand, .kicker {
-    font-family: 'Cormorant Garamond', serif !important;
-    color: #f1e5d3 !important;
+.side-menu-panel a {
+  display:block; padding:15px 0; border-bottom:1px solid rgba(200,166,107,.2);
+  color:#eee6da !important; text-decoration:none !important; font-size:14px;
+  transition:padding-left .2s ease, color .2s ease;
 }
-.brand {
-    font-size: clamp(2rem,4vw,3.4rem);
-    letter-spacing: .16em;
-    line-height: 1.1;
-}
-.kicker {
-    color: var(--gold) !important;
-    font-size: .95rem;
-    letter-spacing: .22em;
-}
-p, li, label, [data-testid="stWidgetLabel"] {
-    color: var(--text);
-}
-a {
-    color: #e0c28c !important;
-}
-.panel {
-    background: linear-gradient(145deg,#30251c,#1e1915);
-    border: 1px solid var(--line);
-    border-radius: 5px;
-    padding: 1.2rem;
-}
-div.stButton > button {
-    width: 100%;
-    min-height: 3rem;
-    border: 1px solid #715638;
-    border-radius: 3px;
-    background: #282019;
-    color: #f0e4d2;
-    transition: all .2s ease;
-}
-div.stButton > button:hover {
-    border-color: var(--gold);
-    background: #3a2b1e;
-    color: #fff2d8;
-}
-[data-testid="stMetric"] {
-    background: #241d17;
-    border: 1px solid var(--line);
-    border-radius: 5px;
-    padding: .8rem;
-}
-hr {
-    border-color: var(--line) !important;
-}
-footer {
-    visibility: hidden;
-}
-
-/* 홈 화면의 호버 카드 메뉴 */
-.hover-menu {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    margin-top: 20px;
-}
-.hover-card {
-    position: relative;
-    display: block;
-    min-height: 145px;
-    padding: 20px 16px;
-    color: #eee6da !important;
-    text-decoration: none !important;
-    background: linear-gradient(145deg,#30251c,#1e1915);
-    border: 1px solid #59452f;
-    border-radius: 4px;
-    transition: all .25s ease;
-}
-.hover-card:hover {
-    background: #3a2b1e;
-    border-color: #c8a66b;
-    transform: translateY(-3px);
-    box-shadow: 0 8px 20px rgba(0,0,0,.18);
-}
-.hover-card .card-kicker {
-    color: #c8a66b;
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 12px;
-    letter-spacing: .18em;
-}
-.hover-card .card-title {
-    color: #f1e5d3;
-    font-family: 'Cormorant Garamond', serif;
-    font-size: clamp(20px, 2vw, 27px);
-    line-height: 1.2;
-    margin-top: 9px;
-}
-.hover-card .hover-detail {
-    color: #d4c4ad;
-    font-size: 12px;
-    line-height: 1.6;
-    margin-top: 12px;
-    opacity: 0;
-    max-height: 0;
-    overflow: hidden;
-    transition: opacity .2s ease, max-height .2s ease;
-}
-.hover-card:hover .hover-detail,
-.hover-card:focus .hover-detail {
-    opacity: 1;
-    max-height: 60px;
-}
-@media (max-width: 650px) {
-    .hover-menu {
-        grid-template-columns: 1fr;
-    }
-    .hover-card {
-        min-height: 115px;
-    }
+.side-menu-panel a:hover { padding-left:7px; color:#c8a66b !important; }
+.side-menu-panel .menu-caption { margin-top:25px; color:#b8aa98; font-size:11px; line-height:1.7; }
+@media (max-width:600px) {
+  .side-menu-panel { width:270px; left:-288px; }
+  .side-menu-trigger { height:145px; top:38%; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -235,6 +155,20 @@ st.markdown(
 # 홈 화면
 # -----------------------------
 if st.session_state.page == "home":
+    # 화면 왼쪽 가장자리에 마우스를 올리면 열리는 메뉴
+    st.markdown("""
+    <div class="side-menu-trigger" aria-label="메뉴 열기"></div>
+    <nav class="side-menu-panel">
+      <div class="menu-eyebrow">THE DINING TABLE</div>
+      <div class="menu-heading">Explore</div>
+      <a href="?page=nutrition" target="_top">Nutrition Check <span style="float:right;color:#c8a66b">↗</span></a>
+      <a href="?page=meal" target="_top">Meal Planner <span style="float:right;color:#c8a66b">↗</span></a>
+      <a href="?page=farm" target="_top">Smart Farm <span style="float:right;color:#c8a66b">↗</span></a>
+      <a href="?page=bmi" target="_top">BMI Guide <span style="float:right;color:#c8a66b">↗</span></a>
+      <div class="menu-caption">마우스를 화면 왼쪽 가장자리로 옮기면 메뉴가 나타납니다.</div>
+    </nav>
+    """, unsafe_allow_html=True)
+
     if IMAGE_PATH.exists():
         st.image(str(IMAGE_PATH), use_container_width=True)
     else:
@@ -243,49 +177,6 @@ if st.session_state.page == "home":
     st.markdown('<div class="kicker">A THOUGHTFUL WAY TO EAT</div>', unsafe_allow_html=True)
     st.markdown("## Discover your table.")
     st.write("식품 영양 정보부터 맞춤형 식단, 지속 가능한 먹거리까지 한곳에서 확인하세요.")
-
-    left, right = st.columns([1, 1.5], gap="large")
-    with left:
-        st.markdown("""
-        <div class="panel">
-            <div class="kicker">EXPLORE</div>
-            <h2>Your daily table</h2>
-            <p>원하는 메뉴에 마우스를 올려 기능을 확인하세요.</p>
-            <div class="hover-menu">
-                <a class="hover-card" href="?page=nutrition" target="_top">
-                    <div class="card-kicker">01 · NUTRITION</div>
-                    <div class="card-title">Nutrition Check</div>
-                    <div class="hover-detail">식품 영양 성분과 섭취 기록 확인 ↗</div>
-                </a>
-                <a class="hover-card" href="?page=meal" target="_top">
-                    <div class="card-kicker">02 · MEAL</div>
-                    <div class="card-title">Meal Planner</div>
-                    <div class="hover-detail">메뉴별 영양 정보와 식단 추천 ↗</div>
-                </a>
-                <a class="hover-card" href="?page=farm" target="_top">
-                    <div class="card-kicker">03 · SUSTAINABILITY</div>
-                    <div class="card-title">Smart Farm</div>
-                    <div class="hover-detail">친환경 채소와 스마트팜 검색 ↗</div>
-                </a>
-                <a class="hover-card" href="?page=bmi" target="_top">
-                    <div class="card-kicker">04 · WELLNESS</div>
-                    <div class="card-title">BMI Guide</div>
-                    <div class="hover-detail">BMI 계산과 참고 정보 확인 ↗</div>
-                </a>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with right:
-        st.markdown("""
-        <div class="panel">
-            <div class="kicker">OUR PHILOSOPHY</div>
-            <h2>Good food. Considered living.</h2>
-            <p>좋은 식사는 몸을 이해하는 일에서 시작합니다. 먹는 음식의 영양을 확인하고, 일상에 맞는 식단을 계획하며, 지속 가능한 먹거리와 연결됩니다.</p>
-            <hr>
-            <div class="kicker">NUTRITION · BALANCE · SUSTAINABILITY</div>
-        </div>
-        """, unsafe_allow_html=True)
 
 # -----------------------------
 # 영양 분석
