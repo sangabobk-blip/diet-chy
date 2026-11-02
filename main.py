@@ -295,7 +295,7 @@ def show_nutrients(values):
     for col, key in zip(cols, keys):
         col.metric(NUTRIENTS[key][0], f"{values.get(key, 0):,.1f}")
 
-    with st.expander("영양성분 기준치와 비교하기", expanded=True):
+    with st.expander("영양성분 기준치와 비교하기", expanded=False):
         rows = []
         for key, reference in DAILY_LABEL_VALUES.items():
             amount = float(values.get(key, 0) or 0)
@@ -498,7 +498,7 @@ def recommend_meal_combo(frame, seed_text):
 
 
 def portion_choices(food_name, unit):
-    """가정용 기준의 대략적인 양을 제공합니다. 실제 중량은 음식별로 달라질 수 있습니다."""
+    """가정용 기준의 대략적인 양을 제공합니다. 표시 중량은 음식·조리법·그릇 크기에 따라 달라질 수 있습니다."""
     name = normalize_food_name(food_name)
     if unit == "ml":
         return [
