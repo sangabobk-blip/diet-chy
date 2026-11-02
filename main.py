@@ -1,6 +1,7 @@
 import base64
 from pathlib import Path
 from urllib.parse import quote_plus
+import unicodedata
 
 import pandas as pd
 import streamlit as st
@@ -534,6 +535,8 @@ elif st.session_state.page == "meal":
         else:
             available_ids = meal_options["catalog_id"].tolist()
             all_day_totals = []
+            plan_detail_rows = []
+
             for day_number in range(1, meal_days + 1):
                 with st.expander(f"{day_number}일차 식단", expanded=(day_number == 1)):
                     selected_ids = st.multiselect(
@@ -561,28 +564,64 @@ elif st.session_state.page == "meal":
                         quantities.append(amount)
 
                     if selected_ids:
-                        totals, details = calculate_meal(selected_ids, quantities, widget_prefix=f"meal_day_{day_number}")
-                        all_day_totals.append((day_number, totals))
+                        totals, details = calculate_meal(
+                            selected_ids, quantities,
+                            widget_prefix=f"meal_day_{day_number}"
+                        )
+                        for detail in details:
+                            plan_detail_rows.append({"날짜": f"{day_number}일차", **detail})
                         if details:
                             st.markdown(f"**{day_number}일차 구성 식품**")
-                            st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
+                            st.dataframe(
+                                pd.DataFrame(details),
+                                use_container_width=True,
+                                hide_index=True
+                            )
                             st.markdown(f"**{day_number}일차 영양성분 합계**")
                             show_nutrients(totals)
                     else:
+                        totals = {key: 0.0 for key in NUTRIENTS}
                         st.info("이 날짜에 넣을 식품을 선택해 주세요.")
 
-            if all_day_totals:
-                st.subheader("기간별 영양 정보 요약")
-                summary = []
-                for day_number, totals in all_day_totals:
-                    summary.append({
-                        "날짜": f"{day_number}일차",
-                        "열량 (kcal)": round(totals["kcal"], 1),
-                        "탄수화물 (g)": round(totals["carbohydrate_g"], 1),
-                        "단백질 (g)": round(totals["protein_g"], 1),
-                        "지방 (g)": round(totals["fat_g"], 1),
-                    })
-                st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
+                    # 식품을 고르지 않은 날도 기간 요약에 포함합니다.
+                    all_day_totals.append((day_number, totals))
+
+            st.subheader("기간별 영양 정보 요약")
+            summary = []
+            for day_number, totals in all_day_totals:
+                summary.append({
+                    "날짜": f"{day_number}일차",
+                    "열량 (kcal)": round(totals["kcal"], 1),
+                    "탄수화물 (g)": round(totals["carbohydrate_g"], 1),
+                    "단백질 (g)": round(totals["protein_g"], 1),
+                    "지방 (g)": round(totals["fat_g"], 1),
+                })
+
+            summary_df = pd.DataFrame(summary)
+            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+            st.markdown("#### 식단표 다운로드")
+            if plan_detail_rows:
+                detail_df = pd.DataFrame(plan_detail_rows)
+                st.download_button(
+                    "식품별 식단표 다운로드 (CSV)",
+                    data=detail_df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"식단표_{meal_days}일.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="download_meal_details",
+                )
+            else:
+                st.info("다운로드하려면 먼저 식단에 식품을 추가해 주세요.")
+
+            st.download_button(
+                "기간별 영양 요약 다운로드 (CSV)",
+                data=summary_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"영양요약_{meal_days}일.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="download_meal_summary",
+            )
 
     st.caption(
         "식단은 식품을 기록하고 영양 정보를 살펴보는 참고 도구입니다. "
