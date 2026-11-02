@@ -1,4 +1,5 @@
 import base64
+import re
 from pathlib import Path
 from urllib.parse import quote_plus
 import unicodedata
@@ -654,9 +655,47 @@ elif st.session_state.page == "bmi":
     if st.button("← 홈으로 돌아가기", key="bmi_back"):
         back_home()
         st.rerun()
-    st.header("BMI Guide")
-    st.write("BMI는 체중 상태를 단독으로 판단하는 기준이 아닙니다. 청소년은 성장 단계와 연령·성별별 기준을 함께 고려해야 합니다.")
-    st.info("이 페이지는 BMI를 통한 체형 평가나 식사 제한을 권장하지 않습니다. 청소년의 건강 상태는 성장 과정과 전반적인 건강 정보를 함께 고려해야 합니다.")
+    st.header("BMI Calculator")
+    st.write(
+        "키와 몸무게를 입력하면 참고용 BMI 수치를 계산합니다. "
+        "BMI는 건강 상태를 단독으로 판단하는 기준이 아닙니다."
+    )
+
+    st.info(
+        "청소년은 성장 단계와 연령·성별에 따른 성장 기준을 함께 살펴야 합니다. "
+        "따라서 성인용 BMI 구간이나 목표 BMI·목표 체중을 적용하지 않습니다."
+    )
+
+    with st.form("bmi_calculator_form"):
+        height_cm = st.number_input(
+            "키 (cm)", min_value=80.0, max_value=220.0,
+            value=160.0, step=0.5
+        )
+        weight_kg = st.number_input(
+            "몸무게 (kg)", min_value=10.0, max_value=200.0,
+            value=50.0, step=0.5
+        )
+        submitted = st.form_submit_button("BMI 계산하기", use_container_width=True)
+
+    if submitted:
+        if height_cm <= 0 or weight_kg <= 0:
+            st.error("키와 몸무게를 올바르게 입력해 주세요.")
+        else:
+            height_m = height_cm / 100
+            bmi_value = weight_kg / (height_m ** 2)
+            st.metric("계산된 BMI", f"{bmi_value:.1f}")
+            st.caption(
+                "이 숫자만으로 저체중·정상·과체중 여부를 판단하거나 "
+                "체중 목표를 정하지 마세요. 청소년의 성장 상태는 "
+                "보호자와 의료 전문가가 연령·성별별 성장도표 및 건강 정보를 "
+                "함께 확인하는 것이 적절합니다."
+            )
+
+    st.markdown("#### 건강 목표 설정")
+    st.write(
+        "BMI 숫자를 목표로 삼기보다 규칙적인 식사, 다양한 식품 섭취, "
+        "충분한 수면과 일상적인 신체활동처럼 건강을 돕는 습관을 살펴보세요."
+    )
 
 st.markdown("---")
 st.markdown(
