@@ -19,7 +19,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 IMAGE_PATH = BASE_DIR / "kitchen_home.png"
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_data():
     """data 폴더의 음식 목록, 영양성분, 연결표를 불러옵니다."""
     catalog_path = DATA_DIR / "food_catalog.csv"
@@ -32,9 +32,28 @@ def load_data():
             "data 폴더에서 다음 파일을 찾을 수 없습니다: " + ", ".join(missing)
         )
 
-    catalog = pd.read_csv(catalog_path, encoding="utf-8-sig", dtype=str).fillna("")
-    nutrition = pd.read_csv(nutrition_path, encoding="utf-8-sig", dtype={"food_code": str})
-    links = pd.read_csv(links_path, encoding="utf-8-sig", dtype=str).fillna("")
+    catalog_cols = [
+        "catalog_id", "catalog_type", "food_name", "food_category",
+        "representative_name", "nutrition_match_count", "match_status"
+    ]
+    nutrition_cols = [
+        "food_code", "nutrition_food_name", "nutrition_data_type", "nutrient_basis",
+        "kcal", "carbohydrate_g", "sugars_g", "fiber_g", "protein_g", "fat_g",
+        "saturated_fat_g", "trans_fat_g", "sodium_mg", "calcium_mg", "iron_mg",
+        "potassium_mg", "vitamin_a_ug_rae", "vitamin_c_mg", "cholesterol_mg"
+    ]
+    link_cols = ["catalog_id", "food_code"]
+
+    catalog = pd.read_csv(
+        catalog_path, encoding="utf-8-sig", dtype=str, usecols=catalog_cols
+    ).fillna("")
+    nutrition = pd.read_csv(
+        nutrition_path, encoding="utf-8-sig", dtype={"food_code": str},
+        usecols=nutrition_cols, low_memory=False
+    )
+    links = pd.read_csv(
+        links_path, encoding="utf-8-sig", dtype=str, usecols=link_cols
+    ).fillna("")
 
     numeric_cols = [
         "kcal", "carbohydrate_g", "sugars_g", "fiber_g", "protein_g",
@@ -48,14 +67,26 @@ def load_data():
 
     return catalog, nutrition, links
 
-try:
-    CATALOG, NUTRITION, LINKS = load_data()
-    DATA_READY = True
-    DATA_ERROR = ""
-except Exception as e:
-    CATALOG, NUTRITION, LINKS = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    DATA_READY = False
-    DATA_ERROR = str(e)
+# 홈 화면을 먼저 빠르게 띄우고, 영양 분석/식단 메뉴에 들어갈 때만 데이터를 읽습니다.
+CATALOG, NUTRITION, LINKS = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+DATA_READY = False
+DATA_ERROR = ""
+DATA_ATTEMPTED = False
+
+def ensure_data_loaded():
+    global CATALOG, NUTRITION, LINKS, DATA_READY, DATA_ERROR, DATA_ATTEMPTED
+    if DATA_ATTEMPTED:
+        return DATA_READY
+    DATA_ATTEMPTED = True
+    try:
+        with st.spinner("식품 및 영양성분 데이터를 불러오는 중입니다..."):
+            CATALOG, NUTRITION, LINKS = load_data()
+        DATA_READY = True
+        DATA_ERROR = ""
+    except Exception as e:
+        DATA_READY = False
+        DATA_ERROR = str(e)
+    return DATA_READY
 
 VALID_PAGES = {"home", "nutrition", "meal", "farm", "bmi"}
 query_page = st.query_params.get("page")
@@ -199,27 +230,67 @@ def choose_nutrition_row(catalog_id, widget_key):
     candidates = linked_rows(catalog_id)
     if candidates.empty:
         return None
-    candidates = candidates.sort_values(["nutrition_data_type", "nutrient_basis", "food_code"])
-    if len(candidates) == 1:
-        return candidates.iloc[0]
-    options = candidates.index.tolist()
-    labels = {
-        idx: f'{candidates.loc[idx, "nutrition_data_type"]} · {candidates.loc[idx, "nutrient_basis"]} · 코드 {candidates.loc[idx, "food_code"]}'
-        for idx in options
-    }
-    selected = st.selectbox(
-        "영양 정보 선택 (같은 이름의 자료가 여러 개 있습니다)",
-        options,
-        format_func=lambda idx: labels[idx],
-        key=widget_key,
-    )
-    return candidates.loc[selected]
 
-def calculate_meal(selected_ids, quantities):
+    candidates = candidates.sort_values(
+        ["nutrition_data_type", "nutrient_basis", "food_code"]
+    ).copy()
+
+    # 기준량과 단위가 같은 자료끼리만 평균 후보로 묶습니다.
+    candidates["_basis_key"] = candidates["nutrient_basis"].astype(str).str.strip().str.lower()
+    groups = {
+        basis: group.head(3)
+        for basis, group in candidates.groupby("_basis_key", sort=True)
+        if len(group) >= 2
+    }
+
+    options = []
+    option_labels = {}
+    for basis, group in groups.items():
+        option = f"average::{basis}"
+        options.append(option)
+        option_labels[option] = (
+            f"동일 기준량 자료 평균 ({len(group)}개 · {group.iloc[0]['nutrient_basis']})"
+        )
+
+    for idx, row in candidates.iterrows():
+        option = f"row::{idx}"
+        options.append(option)
+        option_labels[option] = (
+            f"{row['nutrition_data_type']} · {row['nutrient_basis']} · 코드 {row['food_code']}"
+        )
+
+    if len(options) == 1:
+        selected = options[0]
+    else:
+        selected = st.selectbox(
+            "영양 정보 선택",
+            options,
+            format_func=lambda option: option_labels[option],
+            key=widget_key,
+        )
+
+    if selected.startswith("average::"):
+        group = groups[selected.split("::", 1)[1]].copy()
+        averaged = group.iloc[0].copy()
+        numeric_cols = [
+            col for col in NUTRIENTS
+            if col in group.columns
+        ]
+        for col in numeric_cols:
+            averaged[col] = pd.to_numeric(group[col], errors="coerce").mean()
+        averaged["nutrition_food_name"] = f"{group.iloc[0]['nutrition_food_name']} (자료 평균)"
+        averaged["nutrition_data_type"] = f"동일 기준량 {len(group)}개 자료 평균"
+        averaged["food_code"] = "평균값"
+        return averaged
+
+    row_index = int(selected.split("::", 1)[1])
+    return candidates.loc[row_index]
+
+def calculate_meal(selected_ids, quantities, widget_prefix="meal"):
     totals = {key: 0.0 for key in NUTRIENTS}
     detail_rows = []
     for catalog_id, amount in zip(selected_ids, quantities):
-        row = choose_nutrition_row(catalog_id, f"meal_source_{catalog_id}")
+        row = choose_nutrition_row(catalog_id, f"{widget_prefix}_source_{catalog_id}")
         if row is None:
             continue
         values, unit, basis = nutrient_values(row, amount)
@@ -235,6 +306,46 @@ def calculate_meal(selected_ids, quantities):
             "지방 (g)": round(values["fat_g"], 1),
         })
     return totals, detail_rows
+
+
+def normalize_food_name(value):
+    """검색 비교를 위해 유니코드와 공백을 정리합니다."""
+    value = unicodedata.normalize("NFKC", str(value)).casefold()
+    return re.sub(r"\s+", "", value)
+
+def search_catalog(search_text, source_df, limit=300, nutrition_only=False, search_type="전체"):
+    """음식명 일부 검색 + 검색어별 일치 + 관련도순 정렬."""
+    results = source_df.copy()
+
+    if search_type != "전체":
+        results = results[results["catalog_type"] == search_type]
+
+    if nutrition_only:
+        results = results[
+            pd.to_numeric(results["nutrition_match_count"], errors="coerce").fillna(0) > 0
+        ]
+
+    query = normalize_food_name(search_text)
+    if query:
+        names = results["food_name"].fillna("").map(normalize_food_name)
+        # 띄어쓰기로 나눈 검색어가 모두 음식 이름에 포함되는지 확인
+        raw_tokens = [normalize_food_name(token) for token in str(search_text).split()]
+        tokens = [token for token in raw_tokens if token]
+        mask = pd.Series(True, index=results.index)
+        for token in tokens:
+            mask &= names.str.contains(re.escape(token), regex=True, na=False)
+        results = results[mask].copy()
+
+        if not results.empty:
+            matched_names = results["food_name"].fillna("").map(normalize_food_name)
+            results["_rank"] = matched_names.map(
+                lambda name: 0 if name == query else (1 if name.startswith(query) else 2)
+            )
+            results = results.sort_values(
+                ["_rank", "food_name"], kind="stable"
+            ).drop(columns="_rank")
+
+    return results.head(limit)
 
 # --------------------------------------------------
 # 사이드바
@@ -263,11 +374,6 @@ st.markdown(
     '<div class="kicker">FOOD · NUTRITION · A BETTER YOU</div><hr>',
     unsafe_allow_html=True,
 )
-
-if not DATA_READY:
-    st.error("데이터 파일을 불러오지 못했습니다.")
-    st.code(DATA_ERROR)
-    st.info("GitHub 저장소에서 main.py와 같은 위치에 data 폴더가 있고, 그 안에 food_catalog.csv, nutrition_data.csv, food_nutrition_links.csv가 있는지 확인해 주세요.")
 
 # --------------------------------------------------
 # 홈
@@ -299,13 +405,17 @@ if st.session_state.page == "home":
     st.markdown('<div class="kicker">A THOUGHTFUL WAY TO EAT</div>', unsafe_allow_html=True)
     st.markdown("## Discover your table.")
     st.write("식품 영양 정보부터 맞춤형 식단, 지속 가능한 먹거리까지 한곳에서 확인하세요.")
-    if DATA_READY:
-        st.caption(f"현재 {len(CATALOG):,}개 음식 항목과 {len(NUTRITION):,}개 영양성분 자료를 불러왔습니다.")
+    st.caption("영양 정보는 영양 성분 분석 또는 맞춤형 식단 메뉴에서 불러옵니다.")
 
 # --------------------------------------------------
 # 영양 성분 분석: CSV 검색 및 실제 영양값 계산
 # --------------------------------------------------
 elif st.session_state.page == "nutrition":
+    ensure_data_loaded()
+    if not DATA_READY:
+        st.error("데이터 파일을 불러오지 못했습니다.")
+        st.code(DATA_ERROR)
+        st.info("main.py와 같은 위치의 data 폴더에 CSV 파일 3개가 있는지 확인해 주세요.")
     if st.button("← 홈으로 돌아가기", key="nutrition_back"):
         back_home()
         st.rerun()
@@ -315,14 +425,10 @@ elif st.session_state.page == "nutrition":
     if DATA_READY:
         search_type = st.selectbox("음식 종류", ["전체", "일반음식", "가공식품"])
         search_text = st.text_input("음식 검색", placeholder="예: 바나나, 두부, 우유, 과자")
-        options_df = CATALOG.copy()
-        if search_type != "전체":
-            options_df = options_df[options_df["catalog_type"] == search_type]
-        if search_text.strip():
-            options_df = options_df[
-                options_df["food_name"].str.contains(search_text.strip(), case=False, na=False)
-            ]
-        options_df = options_df.head(300)
+        options_df = search_catalog(
+            search_text, CATALOG, limit=300, search_type=search_type
+        )
+        st.caption(f"검색 결과: {len(options_df):,}개 (최대 300개 표시)")
         if options_df.empty:
             st.warning("검색 결과가 없습니다. 다른 검색어를 입력해 보세요.")
         else:
@@ -380,49 +486,108 @@ elif st.session_state.page == "nutrition":
 # 맞춤형 식단: 사용자가 고른 식품의 영양성분 합산
 # --------------------------------------------------
 elif st.session_state.page == "meal":
+    ensure_data_loaded()
+    if not DATA_READY:
+        st.error("데이터 파일을 불러오지 못했습니다.")
+        st.code(DATA_ERROR)
+        st.info("main.py와 같은 위치의 data 폴더에 CSV 파일 3개가 있는지 확인해 주세요.")
     if st.button("← 홈으로 돌아가기", key="meal_back"):
         back_home()
         st.rerun()
     st.header("Meal Planner")
-    st.write("직접 식품을 골라 한 끼를 구성하고 전체 영양 정보를 계산하세요.")
+    st.write("기간과 식품 종류를 선택해 여러 날의 식단을 구성해 보세요.")
 
     if DATA_READY:
-        meal_search = st.text_input("식품 검색", placeholder="예: 밥, 달걀, 채소")
-        meal_options = CATALOG.copy()
-        if meal_search.strip():
-            meal_options = meal_options[meal_options["food_name"].str.contains(meal_search.strip(), case=False, na=False)]
-        meal_options = meal_options[meal_options["nutrition_match_count"].astype(int) > 0].head(500)
-        meal_ids = st.multiselect(
-            "식단에 넣을 식품 선택",
-            meal_options["catalog_id"].tolist(),
-            format_func=food_label,
+        meal_days = st.selectbox(
+            "식단 계획 기간",
+            options=list(range(1, 8)),
+            format_func=lambda n: f"{n}일" if n != 7 else "7일 (일주일)",
+            key="meal_plan_days",
         )
-        meal_quantities = []
-        for food_id in meal_ids:
-            candidate_rows = linked_rows(food_id)
-            default_unit = basis_unit(candidate_rows.iloc[0]["nutrient_basis"]) if not candidate_rows.empty else "g"
-            amount = st.number_input(
-                f"{food_label(food_id)} 섭취량 ({default_unit})",
-                min_value=1.0,
-                max_value=5000.0,
-                value=100.0,
-                step=10.0,
-                key=f"meal_amount_{food_id}",
-            )
-            meal_quantities.append(amount)
 
-        if meal_ids:
-            totals, details = calculate_meal(meal_ids, meal_quantities)
-            st.subheader("선택한 식단")
-            if details:
-                st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
-                st.subheader("한 끼 영양성분 합계")
-                show_nutrients(totals)
-            else:
-                st.warning("선택한 식품의 영양성분을 불러오지 못했습니다.")
+        category_values = sorted(
+            [str(x) for x in CATALOG["food_category"].dropna().unique() if str(x).strip()]
+        )
+        meal_category = st.selectbox(
+            "식품 카테고리",
+            ["전체 카테고리"] + category_values,
+            key="meal_category_filter",
+        )
+        meal_search = st.text_input(
+            "식품 이름 검색 (선택)",
+            placeholder="예: 밥, 달걀, 사과",
+            key="meal_search_text",
+        )
+
+        meal_options = search_catalog(
+            meal_search, CATALOG, limit=1500, nutrition_only=True
+        )
+        if meal_category != "전체 카테고리":
+            meal_options = meal_options[
+                meal_options["food_category"].astype(str) == meal_category
+            ]
+        meal_options = meal_options.sort_values("food_name", kind="stable")
+        st.caption(f"검색 결과: {len(meal_options):,}개 · 가나다순 정렬")
+
+        if meal_options.empty:
+            st.warning("해당 조건의 식품이 없습니다. 카테고리나 검색어를 바꿔 보세요.")
         else:
-            st.info("식품을 검색해 한 가지 이상 선택해 주세요.")
-    st.caption("이 기능은 선택한 식품의 영양성분을 합산합니다. 개인의 건강 상태나 성장 단계에 맞는 식단 처방은 아닙니다.")
+            available_ids = meal_options["catalog_id"].tolist()
+            all_day_totals = []
+            for day_number in range(1, meal_days + 1):
+                with st.expander(f"{day_number}일차 식단", expanded=(day_number == 1)):
+                    selected_ids = st.multiselect(
+                        f"{day_number}일차에 넣을 식품",
+                        available_ids,
+                        format_func=food_label,
+                        key=f"meal_day_{day_number}_foods",
+                        help="여러 식품을 동시에 선택할 수 있습니다.",
+                    )
+                    quantities = []
+                    for food_id in selected_ids:
+                        candidate_rows = linked_rows(food_id)
+                        default_unit = (
+                            basis_unit(candidate_rows.iloc[0]["nutrient_basis"])
+                            if not candidate_rows.empty else "g"
+                        )
+                        amount = st.number_input(
+                            f"{food_label(food_id)} 섭취량 ({default_unit})",
+                            min_value=1.0,
+                            max_value=5000.0,
+                            value=100.0,
+                            step=10.0,
+                            key=f"meal_amount_day_{day_number}_{food_id}",
+                        )
+                        quantities.append(amount)
+
+                    if selected_ids:
+                        totals, details = calculate_meal(selected_ids, quantities, widget_prefix=f"meal_day_{day_number}")
+                        all_day_totals.append((day_number, totals))
+                        if details:
+                            st.markdown(f"**{day_number}일차 구성 식품**")
+                            st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
+                            st.markdown(f"**{day_number}일차 영양성분 합계**")
+                            show_nutrients(totals)
+                    else:
+                        st.info("이 날짜에 넣을 식품을 선택해 주세요.")
+
+            if all_day_totals:
+                st.subheader("기간별 영양 정보 요약")
+                summary = []
+                for day_number, totals in all_day_totals:
+                    summary.append({
+                        "날짜": f"{day_number}일차",
+                        "열량 (kcal)": round(totals["kcal"], 1),
+                        "탄수화물 (g)": round(totals["carbohydrate_g"], 1),
+                        "단백질 (g)": round(totals["protein_g"], 1),
+                        "지방 (g)": round(totals["fat_g"], 1),
+                    })
+                st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
+
+    st.caption(
+        "식단은 식품을 기록하고 영양 정보를 살펴보는 참고 도구입니다. "
+        "성장기에는 특정 수치에 맞추어 식사를 제한하기보다 다양한 식품을 균형 있게 먹는 것이 중요합니다."
+    )
 
 # --------------------------------------------------
 # 스마트팜 및 친환경 먹거리 검색
