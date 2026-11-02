@@ -12,7 +12,7 @@ import streamlit as st
 # --------------------------------------------------
 st.set_page_config(
     page_title="THE DINING TABLE",
-    page_icon="🍽️",
+    page_icon="T",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -115,10 +115,11 @@ def back_home():
 st.markdown(
     """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@400;500;600;700&display=swap');
 :root {
-    --bg: #171310; --panel: #241d17; --gold: #c8a66b;
-    --line: #59452f; --text: #eee6da; --muted: #b9a995;
+    --bg: #171613; --panel: #24211c; --gold: #c8a66b;
+    --line: #514637; --text: #eee9df; --muted: #b9b0a2;
+    --sage: #8fa58b; --blue: #8da9bd; --rose: #c58f83;
 }
 html, body, [class*="css"], button, input, textarea, select,
 [data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"] {
@@ -128,7 +129,11 @@ body, p, li, label, input, textarea, select, button { letter-spacing: -.01em; }
 .stApp { background: var(--bg); color: var(--text); }
 [data-testid="stHeader"] { background: rgba(23,19,16,.92); }
 .block-container { max-width: 1180px; padding-top: 1.2rem; padding-bottom: 2.5rem; }
-h1,h2,h3,h4,h5,h6 { color: #f1e5d3 !important; font-weight: 600 !important; }
+h1,h2,h3,h4,h5,h6 { color: #f1e8d9 !important; font-family: 'Noto Serif KR', serif !important; font-weight: 600 !important; letter-spacing: -.025em; }
+h2 { border-left: 3px solid var(--gold); padding-left: .7rem; }
+[data-testid='stMetric'] { background: linear-gradient(145deg, #29251f, #211e19); border: 1px solid #5b4c39; border-radius: 8px; padding: .85rem; }
+[data-testid='stMetricValue'] { color: #f2dfbd !important; }
+[data-testid='stMetricLabel'] { color: #c5b9a6 !important; }
 .brand,.kicker,.english-menu,.sidebar-brand,.sidebar-kicker,.sidebar-section-label,.footer-brand {
     font-family: 'Cormorant Garamond', serif !important;
 }
@@ -152,8 +157,10 @@ div.stButton > button,[data-testid="stLinkButton"] a {
 div.stButton > button:hover,[data-testid="stLinkButton"] a:hover {
     border-color: var(--gold) !important; background: #392b1f !important; color: #fff2d8 !important;
 }
-[data-testid="stMetric"] { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: .7rem; }
-[data-testid="stMetricLabel"] { color: var(--muted) !important; }
+[data-testid="stMetric"] { background: linear-gradient(145deg, #29251f, #211e19); border: 1px solid #5b4c39; border-radius: 8px; padding: .85rem; }
+[data-testid="stMetricLabel"] { color: #c5b9a6 !important; }
+[data-testid="stAlert"] { border-radius: 8px; border-left-width: 3px; }
+[data-testid="stExpander"] { border-color: #5b4c39 !important; border-radius: 8px !important; background: #211e19 !important; }
 hr { border-color: var(--line) !important; }
 footer { visibility: hidden; }
 .kitchen-shell { position: relative; width: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background: #211a15; }
@@ -245,6 +252,16 @@ NUTRIENTS = {
     "vitamin_c_mg": ("비타민 C (mg)", "mg"),
 }
 
+# 식품 표시에서 사용하는 일반 성인 기준치(개인별 권장량이 아님)
+# 청소년·임신부·질환자 등은 연령과 상태에 따라 기준이 달라질 수 있습니다.
+DAILY_LABEL_VALUES = {
+    "kcal": 2000, "carbohydrate_g": 324, "sugars_g": 100, "fiber_g": 25,
+    "protein_g": 55, "fat_g": 54, "sodium_mg": 2000,
+    "calcium_mg": 700, "iron_mg": 12, "potassium_mg": 3500,
+    "vitamin_c_mg": 100,
+}
+
+
 def food_label(catalog_id):
     row = CATALOG.loc[CATALOG["catalog_id"] == catalog_id].iloc[0]
     return str(row["food_name"])
@@ -277,6 +294,20 @@ def show_nutrients(values):
     cols = st.columns(5)
     for col, key in zip(cols, keys):
         col.metric(NUTRIENTS[key][0], f"{values.get(key, 0):,.1f}")
+
+    with st.expander("영양성분 기준치와 비교하기", expanded=True):
+        rows = []
+        for key, reference in DAILY_LABEL_VALUES.items():
+            amount = float(values.get(key, 0) or 0)
+            label_name = "열량 (식품표시 참고 기준)" if key == "kcal" else NUTRIENTS[key][0]
+            rows.append({
+                "영양성분": label_name,
+                "이번 섭취량": f"{amount:,.1f} {NUTRIENTS[key][1]}",
+                "일반 성인 표시 기준치": f"{reference:,} {NUTRIENTS[key][1]}",
+                "기준치 대비": f"{amount / reference * 100:.1f}%" if reference else "-",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.caption("비교 기준은 식품 영양표시에 사용하는 일반 성인 1일 기준치(열량 2,000kcal 포함)입니다. 개인별 권장 섭취량이나 하루 목표가 아니며, 청소년은 연령·성별·성장 상태와 활동량에 따라 필요한 양이 달라집니다. 이 수치를 식사 제한이나 체중 조절 목표로 사용하지 마세요.")
 
 def choose_nutrition_row(catalog_id, widget_key):
     candidates = linked_rows(catalog_id)
@@ -498,18 +529,33 @@ def portion_choices(food_name, unit):
             ("넉넉한 반찬 접시 (약 80g)", 80.0),
             ("직접 입력", None),
         ]
+    if any(k in name for k in ["계란", "달걀", "바나나", "사과", "감자", "고구마"]):
+        return [
+            ("작은 것 1개 (약 80g)", 80.0),
+            ("보통 크기 1개 (약 120g)", 120.0),
+            ("큰 것 1개 (약 180g)", 180.0),
+            ("직접 입력", None),
+        ]
+    if any(k in name for k in ["고기", "불고기", "닭", "생선", "스테이크", "돈까스"]):
+        return [
+            ("작은 반찬 접시 1개 (약 60g)", 60.0),
+            ("손바닥 크기 1조각 (약 100g)", 100.0),
+            ("손바닥 크기 2조각 (약 180g)", 180.0),
+            ("직접 입력", None),
+        ]
     return [
-        ("조금 (약 50g)", 50.0),
-        ("보통 양 (약 100g)", 100.0),
-        ("넉넉한 양 (약 150g)", 150.0),
+        ("밥숟가락으로 3큰술 정도 (약 45g)", 45.0),
+        ("작은 반찬 접시 1개 (약 80g)", 80.0),
+        ("일반 접시 1/2 정도 (약 120g)", 120.0),
         ("직접 입력", None),
     ]
 
 
-def quantity_input(food_id, widget_prefix):
+def quantity_input(food_id, widget_prefix, basis=None):
     """생활 단위 선택을 기본으로 제공하고 필요할 때만 직접 수치를 입력합니다."""
     candidate_rows = linked_rows(food_id)
-    unit = basis_unit(candidate_rows.iloc[0]["nutrient_basis"]) if not candidate_rows.empty else "g"
+    selected_basis = basis if basis is not None else (candidate_rows.iloc[0]["nutrient_basis"] if not candidate_rows.empty else "100g")
+    unit = basis_unit(selected_basis)
     choices = portion_choices(CATALOG.loc[CATALOG["catalog_id"] == food_id, "food_name"].iloc[0], unit)
     labels = [item[0] for item in choices]
     selected_label = st.selectbox(
@@ -540,12 +586,12 @@ with st.sidebar:
     st.divider()
     st.markdown('<div class="sidebar-section-label">Explore</div>', unsafe_allow_html=True)
     nav_items = [
-        ("🏠 홈으로", "home", "nav_home"),
-        ("🥗 영양 성분 분석", "nutrition", "nav_nutrition"),
-        ("🍱 맞춤형 식단", "meal", "nav_meal"),
-        ("👤 사용자 영양 설정", "profile", "nav_profile"),
-        ("🌱 스마트팜 검색", "farm", "nav_farm"),
-        ("📊 BMI 안내", "bmi", "nav_bmi"),
+        ("홈으로", "home", "nav_home"),
+        ("영양 성분 분석", "nutrition", "nav_nutrition"),
+        ("맞춤형 식단", "meal", "nav_meal"),
+        ("사용자 영양 설정", "profile", "nav_profile"),
+        ("스마트팜 검색", "farm", "nav_farm"),
+        ("BMI 안내", "bmi", "nav_bmi"),
     ]
     for label, page, key in nav_items:
         if st.button(label, use_container_width=True, key=key, type="secondary"):
@@ -571,10 +617,10 @@ if st.session_state.page == "home":
         st.markdown(
             f"""<div class="kitchen-shell">
               <img src="data:{mime};base64,{image_data}" alt="주방 메인 화면" />
-              <a class="kitchen-hotspot hotspot-nutrition" href="?page=nutrition" target="_top"><span>🥗 영양 성분 분석</span></a>
-              <a class="kitchen-hotspot hotspot-meal" href="?page=meal" target="_top"><span>🍱 맞춤형 식단</span></a>
-              <a class="kitchen-hotspot hotspot-bmi" href="?page=bmi" target="_top"><span>📊 BMI 안내</span></a>
-              <a class="kitchen-hotspot hotspot-farm" href="?page=farm" target="_top"><span>🌱 스마트팜 검색</span></a>
+              <a class="kitchen-hotspot hotspot-nutrition" href="?page=nutrition" target="_top"><span>영양 성분 분석</span></a>
+              <a class="kitchen-hotspot hotspot-meal" href="?page=meal" target="_top"><span>맞춤형 식단</span></a>
+              <a class="kitchen-hotspot hotspot-bmi" href="?page=bmi" target="_top"><span>BMI 안내</span></a>
+              <a class="kitchen-hotspot hotspot-farm" href="?page=farm" target="_top"><span>스마트팜 검색</span></a>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -630,24 +676,21 @@ elif st.session_state.page == "nutrition":
             if candidate is None:
                 st.warning("이 음식은 현재 영양성분 자료와 연결되지 않았습니다. 다른 음식을 검색해 주세요.")
             else:
-                unit = basis_unit(candidate["nutrient_basis"])
-                amount = st.number_input(
-                    f"섭취량 ({unit})",
-                    min_value=1.0,
-                    max_value=5000.0,
-                    value=100.0,
-                    step=10.0,
-                    key="nutrition_amount",
-                )
-                values, _, basis = nutrient_values(candidate, amount)
+                amount = quantity_input(selected_id, "nutrition", candidate["nutrient_basis"])
+                values, unit, basis = nutrient_values(candidate, amount)
                 st.caption(f'영양성분 자료: {candidate["nutrition_food_name"]} · 기준량: {basis} · 자료 구분: {candidate["nutrition_data_type"]}')
                 show_nutrients(values)
                 with st.expander("영양성분 자세히 보기"):
                     detail_keys = list(NUTRIENTS.keys())
-                    detail = [
-                        {"영양성분": NUTRIENTS[k][0], "섭취량 기준 계산값": round(values[k], 2)}
-                        for k in detail_keys
-                    ]
+                    detail = []
+                    for k in detail_keys:
+                        ref = DAILY_LABEL_VALUES.get(k)
+                        detail.append({
+                            "영양성분": NUTRIENTS[k][0],
+                            "섭취량 기준 계산값": round(values[k], 2),
+                            "일반 성인 표시 기준치": ref if ref is not None else "별도 기준 없음",
+                            "기준치 대비(%)": round(values[k] / ref * 100, 1) if ref else "-",
+                        })
                     st.dataframe(pd.DataFrame(detail), use_container_width=True, hide_index=True)
                 if st.button("오늘 섭취 기록에 추가", key="add_intake"):
                     st.session_state.intake.append({
@@ -988,47 +1031,39 @@ elif st.session_state.page == "bmi":
     if st.button("← 홈으로 돌아가기", key="bmi_back"):
         back_home()
         st.rerun()
-    st.header("BMI Calculator")
-    st.write(
-        "키와 몸무게를 입력하면 참고용 BMI 수치를 계산합니다. "
-        "BMI는 건강 상태를 단독으로 판단하는 기준이 아닙니다."
-    )
+    st.header("BMI & 성장 정보")
+    st.write("BMI는 키와 몸무게를 이용한 참고 지표입니다. 숫자 하나만으로 건강 상태를 판단할 수는 없습니다.")
 
-    st.info(
-        "청소년은 성장 단계와 연령·성별에 따른 성장 기준을 함께 살펴야 합니다. "
-        "따라서 성인용 BMI 구간이나 목표 BMI·목표 체중을 적용하지 않습니다."
-    )
+    st.markdown("""
+    <div style="background:linear-gradient(120deg,#29332d,#24211c);border:1px solid #647663;border-radius:10px;padding:1rem 1.2rem;margin:.6rem 0 1rem 0">
+      <div style="color:#b7c9ad;font-size:.82rem;letter-spacing:.08em">HOW TO READ BMI</div>
+      <div style="font-family:'Noto Serif KR',serif;font-size:1.12rem;color:#f0e8d9;margin:.35rem 0">청소년 BMI는 성인 기준표와 다르게 해석해야 합니다.</div>
+      <div style="color:#d4d0c5;font-size:.92rem;line-height:1.65">성장기에는 나이와 성별에 따라 키와 체중의 변화 폭이 다릅니다. 따라서 성인 BMI 구간이나 평균 체중을 목표로 삼지 않고, 연령·성별별 성장도표에서 성장 흐름을 함께 확인해야 합니다.</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     with st.form("bmi_calculator_form"):
-        height_cm = st.number_input(
-            "키 (cm)", min_value=80.0, max_value=220.0,
-            value=160.0, step=0.5
-        )
-        weight_kg = st.number_input(
-            "몸무게 (kg)", min_value=10.0, max_value=200.0,
-            value=50.0, step=0.5
-        )
+        age_years = st.number_input("만 나이", min_value=2, max_value=100, value=16, step=1)
+        sex = st.selectbox("성별 성장도표 선택에 필요한 항목", ["선택 안 함", "남아 성장도표", "여아 성장도표"])
+        height_cm = st.number_input("키 (cm)", min_value=80.0, max_value=220.0, value=160.0, step=0.5)
+        weight_kg = st.number_input("몸무게 (kg)", min_value=10.0, max_value=200.0, value=50.0, step=0.5)
         submitted = st.form_submit_button("BMI 계산하기", use_container_width=True)
 
     if submitted:
         if height_cm <= 0 or weight_kg <= 0:
             st.error("키와 몸무게를 올바르게 입력해 주세요.")
         else:
-            height_m = height_cm / 100
-            bmi_value = weight_kg / (height_m ** 2)
+            bmi_value = weight_kg / ((height_cm / 100) ** 2)
             st.metric("계산된 BMI", f"{bmi_value:.1f}")
-            st.caption(
-                "이 숫자만으로 저체중·정상·과체중 여부를 판단하거나 "
-                "체중 목표를 정하지 마세요. 청소년의 성장 상태는 "
-                "보호자와 의료 전문가가 연령·성별별 성장도표 및 건강 정보를 "
-                "함께 확인하는 것이 적절합니다."
-            )
+            if age_years < 20:
+                st.info("만 20세 미만은 이 BMI 수치를 성인 기준으로 분류하지 않습니다. 선택한 성별과 정확한 만 나이에 해당하는 공식 성장도표에서 BMI-for-age 백분위수와 성장 추이를 확인해야 합니다.")
+                st.caption("현재 앱에는 공식 연령·성별 성장도표 원자료가 연결되어 있지 않아 백분위수나 평균 키·체중을 임의로 표시하지 않습니다. 평균값은 개인의 건강 목표나 적정 체중을 뜻하지 않습니다.")
+            else:
+                st.info("성인도 BMI는 선별 참고 지표일 뿐입니다. 체성분, 건강 상태, 생활 습관 등을 함께 고려해야 하며 이 앱은 진단이나 체중 목표를 제공하지 않습니다.")
 
-    st.markdown("#### 건강 목표 설정")
-    st.write(
-        "BMI 숫자를 목표로 삼기보다 규칙적인 식사, 다양한 식품 섭취, "
-        "충분한 수면과 일상적인 신체활동처럼 건강을 돕는 습관을 살펴보세요."
-    )
+    st.subheader("평균 키·몸무게 정보는 어떻게 볼까요?")
+    st.write("연령대별 평균값은 집단의 통계일 뿐 개인에게 적합한 키나 몸무게를 뜻하지 않습니다. 특히 성장기에는 평균과의 차이보다 본인의 성장 곡선이 자연스럽게 이어지는지, 전반적인 건강 상태가 어떤지를 함께 살펴보는 것이 중요합니다.")
+    st.caption("정확한 성장 백분위수 확인에는 공식 소아청소년 성장도표의 연령·성별 기준 자료가 필요합니다. 이 앱에서는 검증되지 않은 평균값이나 목표 체중을 만들어 보여주지 않도록 했습니다.")
 
 st.markdown("---")
 st.markdown(
