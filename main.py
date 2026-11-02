@@ -90,7 +90,7 @@ def ensure_data_loaded():
         DATA_ERROR = str(e)
     return DATA_READY
 
-VALID_PAGES = {"home", "nutrition", "meal", "farm", "bmi"}
+VALID_PAGES = {"home", "nutrition", "meal", "profile", "farm", "bmi"}
 query_page = st.query_params.get("page")
 if query_page in VALID_PAGES:
     st.session_state.page = query_page
@@ -361,6 +361,7 @@ with st.sidebar:
         ("🏠 홈으로", "home", "nav_home"),
         ("🥗 영양 성분 분석", "nutrition", "nav_nutrition"),
         ("🍱 맞춤형 식단", "meal", "nav_meal"),
+        ("👤 사용자 영양 설정", "profile", "nav_profile"),
         ("🌱 스마트팜 검색", "farm", "nav_farm"),
         ("📊 BMI 안내", "bmi", "nav_bmi"),
     ]
@@ -500,6 +501,16 @@ elif st.session_state.page == "meal":
     st.write("기간과 식품 종류를 선택해 여러 날의 식단을 구성해 보세요.")
 
     if DATA_READY:
+        if "nutrition_profile" not in st.session_state:
+            st.session_state.nutrition_profile = {
+                "age_group": "청소년",
+                "activity": "보통",
+                "preferences": [],
+                "allergies": [],
+                "interests": [],
+            }
+        profile = st.session_state.nutrition_profile
+
         meal_days = st.selectbox(
             "식단 계획 기간",
             options=list(range(1, 8)),
@@ -507,46 +518,84 @@ elif st.session_state.page == "meal":
             key="meal_plan_days",
         )
 
+        st.caption(
+            f"현재 설정: {profile['age_group']} · 활동 수준 {profile['activity']} · "
+            f"선호 식품 {', '.join(profile['preferences']) if profile['preferences'] else '미설정'}"
+        )
+        st.info("알레르기 설정은 자동 추천 후보를 걸러내는 보조 기능입니다. 실제 제품의 원재료와 교차접촉 정보는 반드시 별도로 확인하세요.")
+
         category_values = sorted(
             [str(x) for x in CATALOG["food_category"].dropna().unique() if str(x).strip()]
         )
-        meal_category = st.selectbox(
-            "식품 카테고리",
-            ["전체 카테고리"] + category_values,
-            key="meal_category_filter",
-        )
-        meal_search = st.text_input(
-            "식품 이름 검색 (선택)",
-            placeholder="예: 밥, 달걀, 사과",
-            key="meal_search_text",
-        )
+        base_options = search_catalog(
+            "", CATALOG, limit=5000, nutrition_only=True
+        ).copy()
 
-        meal_options = search_catalog(
-            meal_search, CATALOG, limit=1500, nutrition_only=True
-        )
-        if meal_category != "전체 카테고리":
-            meal_options = meal_options[
-                meal_options["food_category"].astype(str) == meal_category
-            ]
-        meal_options = meal_options.sort_values("food_name", kind="stable")
-        st.caption(f"검색 결과: {len(meal_options):,}개 · 가나다순 정렬")
+        # 식품명에 알레르기 키워드가 포함된 후보를 자동 추천에서 제외
+        allergy_words = [str(x).replace(" ", "").casefold() for x in profile["allergies"]]
+        def allergy_filtered(frame):
+            if not allergy_words:
+                return frame
+            names = frame["food_name"].fillna("").map(normalize_food_name)
+            blocked = pd.Series(False, index=frame.index)
+            for word in allergy_words:
+                blocked |= names.str.contains(re.escape(normalize_food_name(word)), na=False)
+            return frame[~blocked].copy()
 
-        if meal_options.empty:
-            st.warning("해당 조건의 식품이 없습니다. 카테고리나 검색어를 바꿔 보세요.")
-        else:
-            available_ids = meal_options["catalog_id"].tolist()
-            all_day_totals = []
-            plan_detail_rows = []
+        all_day_totals = []
+        plan_detail_rows = []
 
-            for day_number in range(1, meal_days + 1):
-                with st.expander(f"{day_number}일차 식단", expanded=(day_number == 1)):
-                    selected_ids = st.multiselect(
-                        f"{day_number}일차에 넣을 식품",
-                        available_ids,
-                        format_func=food_label,
-                        key=f"meal_day_{day_number}_foods",
-                        help="여러 식품을 동시에 선택할 수 있습니다.",
+        for day_number in range(1, meal_days + 1):
+            st.subheader(f"{day_number}일차")
+            day_totals = {key: 0.0 for key in NUTRIENTS}
+
+            for meal_name in ["아침", "점심", "저녁"]:
+                with st.expander(f"{meal_name} 식단", expanded=(day_number == 1 and meal_name == "아침")):
+                    category_key = f"meal_cat_{day_number}_{meal_name}"
+                    category = st.selectbox(
+                        f"{meal_name} 식품 카테고리",
+                        ["전체 카테고리"] + category_values,
+                        key=category_key,
                     )
+                    search_text = st.text_input(
+                        f"{meal_name} 식품 검색",
+                        placeholder="예: 밥, 달걀, 사과",
+                        key=f"meal_search_{day_number}_{meal_name}",
+                    )
+
+                    meal_options = search_catalog(
+                        search_text, base_options, limit=1500, nutrition_only=False
+                    )
+                    if category != "전체 카테고리":
+                        meal_options = meal_options[
+                            meal_options["food_category"].astype(str) == category
+                        ]
+                    meal_options = meal_options.sort_values("food_name", kind="stable")
+                    meal_options = allergy_filtered(meal_options)
+
+                    option_ids = meal_options["catalog_id"].tolist()
+                    selection_key = f"meal_selected_{day_number}_{meal_name}"
+
+                    if st.button(
+                        f"✨ {meal_name} 자동 구성",
+                        key=f"auto_meal_{day_number}_{meal_name}",
+                        help="현재 카테고리와 알레르기 설정을 참고해 식품 후보를 골라 줍니다.",
+                    ):
+                        if not option_ids:
+                            st.warning("선택 조건에 맞는 식품이 없습니다. 카테고리나 검색어를 바꿔 보세요.")
+                        else:
+                            # 카테고리 필터가 있으면 해당 카테고리 안에서, 없으면 전체에서 선택
+                            chosen = meal_options["catalog_id"].head(3).tolist()
+                            st.session_state[selection_key] = chosen
+
+                    selected_ids = st.multiselect(
+                        f"{meal_name}에 넣을 식품",
+                        option_ids,
+                        format_func=food_label,
+                        key=selection_key,
+                        help="여러 식품을 선택할 수 있습니다. 자동 구성 후 직접 수정해도 됩니다.",
+                    )
+
                     quantities = []
                     for food_id in selected_ids:
                         candidate_rows = linked_rows(food_id)
@@ -560,73 +609,145 @@ elif st.session_state.page == "meal":
                             max_value=5000.0,
                             value=100.0,
                             step=10.0,
-                            key=f"meal_amount_day_{day_number}_{food_id}",
+                            key=f"meal_amount_{day_number}_{meal_name}_{food_id}",
                         )
                         quantities.append(amount)
 
                     if selected_ids:
                         totals, details = calculate_meal(
-                            selected_ids, quantities,
-                            widget_prefix=f"meal_day_{day_number}"
+                            selected_ids,
+                            quantities,
+                            widget_prefix=f"meal_{day_number}_{meal_name}",
                         )
+                        for key, value in totals.items():
+                            day_totals[key] += value
                         for detail in details:
-                            plan_detail_rows.append({"날짜": f"{day_number}일차", **detail})
-                        if details:
-                            st.markdown(f"**{day_number}일차 구성 식품**")
-                            st.dataframe(
-                                pd.DataFrame(details),
-                                use_container_width=True,
-                                hide_index=True
-                            )
-                            st.markdown(f"**{day_number}일차 영양성분 합계**")
-                            show_nutrients(totals)
+                            plan_detail_rows.append({
+                                "날짜": f"{day_number}일차",
+                                "끼니": meal_name,
+                                **detail,
+                            })
+                        st.dataframe(
+                            pd.DataFrame(details),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        show_nutrients(totals)
                     else:
-                        totals = {key: 0.0 for key in NUTRIENTS}
-                        st.info("이 날짜에 넣을 식품을 선택해 주세요.")
+                        st.caption("아직 선택한 식품이 없습니다.")
 
-                    # 식품을 고르지 않은 날도 기간 요약에 포함합니다.
-                    all_day_totals.append((day_number, totals))
+            all_day_totals.append((day_number, day_totals))
+            st.markdown(f"**{day_number}일차 하루 합계**")
+            show_nutrients(day_totals)
 
-            st.subheader("기간별 영양 정보 요약")
-            summary = []
-            for day_number, totals in all_day_totals:
-                summary.append({
-                    "날짜": f"{day_number}일차",
-                    "열량 (kcal)": round(totals["kcal"], 1),
-                    "탄수화물 (g)": round(totals["carbohydrate_g"], 1),
-                    "단백질 (g)": round(totals["protein_g"], 1),
-                    "지방 (g)": round(totals["fat_g"], 1),
-                })
+        st.subheader("기간별 영양 정보 요약")
+        summary = []
+        for day_number, totals in all_day_totals:
+            summary.append({
+                "날짜": f"{day_number}일차",
+                "열량 (kcal)": round(totals["kcal"], 1),
+                "탄수화물 (g)": round(totals["carbohydrate_g"], 1),
+                "단백질 (g)": round(totals["protein_g"], 1),
+                "지방 (g)": round(totals["fat_g"], 1),
+            })
 
-            summary_df = pd.DataFrame(summary)
-            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        summary_df = pd.DataFrame(summary)
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-            st.markdown("#### 식단표 다운로드")
-            if plan_detail_rows:
-                detail_df = pd.DataFrame(plan_detail_rows)
-                st.download_button(
-                    "식품별 식단표 다운로드 (CSV)",
-                    data=detail_df.to_csv(index=False).encode("utf-8-sig"),
-                    file_name=f"식단표_{meal_days}일.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                    key="download_meal_details",
-                )
-            else:
-                st.info("다운로드하려면 먼저 식단에 식품을 추가해 주세요.")
-
+        st.markdown("#### 식단표 다운로드")
+        if plan_detail_rows:
+            detail_df = pd.DataFrame(plan_detail_rows)
             st.download_button(
-                "기간별 영양 요약 다운로드 (CSV)",
-                data=summary_df.to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"영양요약_{meal_days}일.csv",
+                "식품별 식단표 다운로드 (CSV)",
+                data=detail_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"식단표_{meal_days}일.csv",
                 mime="text/csv",
                 use_container_width=True,
-                key="download_meal_summary",
+                key="download_meal_details",
             )
+        else:
+            st.info("다운로드하려면 먼저 식단에 식품을 추가해 주세요.")
+
+        st.download_button(
+            "기간별 영양 요약 다운로드 (CSV)",
+            data=summary_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"영양요약_{meal_days}일.csv",
+            mime="text/csv",
+            use_container_width=True,
+            key="download_meal_summary",
+        )
 
     st.caption(
         "식단은 식품을 기록하고 영양 정보를 살펴보는 참고 도구입니다. "
         "성장기에는 특정 수치에 맞추어 식사를 제한하기보다 다양한 식품을 균형 있게 먹는 것이 중요합니다."
+    )
+
+
+# --------------------------------------------------
+# 사용자 영양 정보 설정
+# --------------------------------------------------
+elif st.session_state.page == "profile":
+    if st.button("← 홈으로 돌아가기", key="profile_back"):
+        back_home()
+        st.rerun()
+
+    st.header("My Nutrition Profile")
+    st.write("식단 추천에 참고할 기본 정보를 설정하세요.")
+
+    if "nutrition_profile" not in st.session_state:
+        st.session_state.nutrition_profile = {
+            "age_group": "청소년",
+            "activity": "보통",
+            "preferences": [],
+            "allergies": [],
+            "interests": [],
+        }
+
+    profile = st.session_state.nutrition_profile
+
+    with st.form("nutrition_profile_form"):
+        age_group = st.selectbox(
+            "연령대",
+            ["청소년", "성인", "중장년", "노년"],
+            index=["청소년", "성인", "중장년", "노년"].index(profile["age_group"]),
+        )
+        activity = st.selectbox(
+            "활동 수준",
+            ["낮음", "보통", "높음"],
+            index=["낮음", "보통", "높음"].index(profile["activity"]),
+            help="운동량을 파악하기 위한 참고 정보이며 열량 제한에 사용하지 않습니다.",
+        )
+        preferences = st.multiselect(
+            "음식 선호도",
+            ["한식", "채식 위주", "육류 포함", "생선·해산물", "유제품", "간편식"],
+            default=profile["preferences"],
+        )
+        allergies = st.multiselect(
+            "알레르기 또는 피하고 싶은 식품",
+            ["우유", "달걀", "밀", "땅콩", "대두", "견과류", "생선", "갑각류", "조개류"],
+            default=profile["allergies"],
+            help="선택한 항목이 식품명에 나타나는 경우 자동 추천 후보에서 제외합니다. 원재료·교차접촉까지 보장하는 알레르기 검사는 아닙니다.",
+        )
+        interests = st.multiselect(
+            "관심 있는 영양 관리 항목",
+            ["균형 잡힌 식사", "식이섬유", "단백질", "칼슘", "철분", "비타민", "나트륨 확인", "당류 확인"],
+            default=profile["interests"],
+        )
+        save_profile = st.form_submit_button("설정 저장", use_container_width=True)
+
+    if save_profile:
+        st.session_state.nutrition_profile = {
+            "age_group": age_group,
+            "activity": activity,
+            "preferences": preferences,
+            "allergies": allergies,
+            "interests": interests,
+        }
+        st.success("사용자 영양 정보 설정을 저장했어요.")
+
+    st.caption(
+        "설정은 식품 검색과 자동 구성의 참고 조건으로만 사용됩니다. "
+        "알레르기가 있다면 앱의 자동 분류만 믿지 말고 제품 원재료 표시를 반드시 확인하세요."
     )
 
 # --------------------------------------------------
