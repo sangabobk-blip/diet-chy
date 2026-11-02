@@ -173,6 +173,56 @@ footer { visibility: hidden; }
 .hotspot-farm { right: 3%; top: 20%; width: 17%; height: 38%; }
 .home-hint { color: var(--muted); font-size: .9rem; margin-top: .65rem; }
 .footer-brand { text-align: center; color: #9e8d79; letter-spacing: .15em; font-size: .9rem; }
+
+/* 입력창: 다크 월넛 테마 통일 */
+div[data-baseweb="input"], div[data-baseweb="select"], div[data-baseweb="textarea"],
+[data-testid="stNumberInput"] div[data-baseweb="input"],
+[data-testid="stTextInput"] div[data-baseweb="input"] {
+    background: #241d17 !important;
+    border: 1px solid #59452f !important;
+    border-radius: 6px !important;
+}
+div[data-baseweb="input"] input,
+div[data-baseweb="textarea"] textarea,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextInput"] input {
+    background: transparent !important;
+    color: #eee6da !important;
+}
+div[data-baseweb="select"] > div {
+    background: #241d17 !important;
+    border-color: #59452f !important;
+    color: #eee6da !important;
+}
+div[data-baseweb="select"] span, div[data-baseweb="select"] input {
+    color: #eee6da !important;
+}
+[data-baseweb="popover"], [data-baseweb="menu"], ul[role="listbox"] {
+    background: #241d17 !important;
+    border: 1px solid #59452f !important;
+}
+li[role="option"] { color: #eee6da !important; }
+li[role="option"]:hover { background: #392b1f !important; }
+div[data-baseweb="input"]:focus-within,
+div[data-baseweb="select"]:focus-within,
+div[data-baseweb="textarea"]:focus-within {
+    border-color: #c8a66b !important;
+    box-shadow: 0 0 0 1px #c8a66b !important;
+}
+button[data-baseweb="tab"] {
+    color: #b9a995 !important;
+    background: #241d17 !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: #f1e5d3 !important;
+    border-bottom-color: #c8a66b !important;
+}
+[data-testid="stExpander"] {
+    border: 1px solid #59452f !important;
+    border-radius: 6px !important;
+    background: rgba(36,29,23,.55) !important;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -197,7 +247,7 @@ NUTRIENTS = {
 
 def food_label(catalog_id):
     row = CATALOG.loc[CATALOG["catalog_id"] == catalog_id].iloc[0]
-    return f'{row["food_name"]} · {row["catalog_type"]}'
+    return str(row["food_name"])
 
 def linked_rows(catalog_id):
     codes = LINKS.loc[LINKS["catalog_id"] == catalog_id, "food_code"].astype(str).unique()
@@ -349,6 +399,138 @@ def search_catalog(search_text, source_df, limit=300, nutrition_only=False, sear
 
     return results.head(limit)
 
+
+def classify_food_role(food_name, food_category=""):
+    """음식명과 분류명을 바탕으로 식단 내 역할을 추정합니다."""
+    name = normalize_food_name(food_name)
+    category = normalize_food_name(food_category)
+
+    if any(k in name for k in ["김치", "나물", "무침", "장아찌", "깍두기", "겉절이"]):
+        return "반찬"
+    if any(k in name for k in ["밥", "볶음밥", "주먹밥", "죽", "국수", "면", "파스타"]):
+        return "밥·면"
+    if any(k in name for k in ["국", "탕", "찌개", "전골", "수프"]):
+        return "국·찌개"
+    if any(k in name for k in ["불고기", "갈비", "스테이크", "돈까스", "제육", "찜닭",
+                               "닭볶음", "생선구이", "구이", "볶음", "튀김", "조림"]):
+        return "주메뉴"
+    if any(k in name for k in ["사과", "바나나", "귤", "포도", "딸기", "배", "오렌지",
+                               "요거트", "요구르트", "우유"]):
+        return "과일·간식"
+    if any(k in category for k in ["반찬", "김치", "나물"]):
+        return "반찬"
+    if any(k in category for k in ["밥", "면", "주식"]):
+        return "밥·면"
+    if any(k in category for k in ["국", "탕", "찌개"]):
+        return "국·찌개"
+    return "주메뉴"
+
+
+def recommend_meal_combo(frame, seed_text):
+    """CSV에 실제 존재하고 영양자료와 연결된 음식 중 역할별 후보를 추천합니다."""
+    import random
+
+    if frame.empty:
+        return []
+
+    work = frame.copy()
+    work["_role"] = work.apply(
+        lambda row: classify_food_role(row.get("food_name", ""), row.get("food_category", "")),
+        axis=1
+    )
+    rng = random.Random()
+    selected = []
+
+    # 주메뉴 1개, 밥·면 1개, 국·찌개 1개, 반찬 2개를 우선 구성합니다.
+    for role, count in [("주메뉴", 1), ("밥·면", 1), ("국·찌개", 1), ("반찬", 2)]:
+        candidates = work[work["_role"] == role]
+        if candidates.empty:
+            continue
+        candidates = candidates.drop_duplicates("food_name")
+        indexes = list(candidates.index)
+        rng.shuffle(indexes)
+        for idx in indexes[:count]:
+            food_id = candidates.loc[idx, "catalog_id"]
+            if food_id not in selected:
+                selected.append(food_id)
+
+    # 특정 역할 자료가 부족한 경우 다른 음식으로 구성하되 중복은 피합니다.
+    if len(selected) < 3:
+        remaining = work[~work["catalog_id"].isin(selected)].drop_duplicates("food_name")
+        indexes = list(remaining.index)
+        rng.shuffle(indexes)
+        for idx in indexes:
+            selected.append(remaining.loc[idx, "catalog_id"])
+            if len(selected) >= 5:
+                break
+    return selected
+
+
+def portion_choices(food_name, unit):
+    """가정용 기준의 대략적인 양을 제공합니다. 실제 중량은 음식별로 달라질 수 있습니다."""
+    name = normalize_food_name(food_name)
+    if unit == "ml":
+        return [
+            ("작은 컵 1/2 (약 100ml)", 100.0),
+            ("일반 컵 1잔 (약 200ml)", 200.0),
+            ("큰 컵 1잔 (약 250ml)", 250.0),
+            ("국그릇 1개 (약 300ml)", 300.0),
+            ("직접 입력", None),
+        ]
+    if any(k in name for k in ["밥", "볶음밥", "주먹밥"]):
+        return [
+            ("밥 1/2공기 (약 100g)", 100.0),
+            ("밥 1공기 (약 210g)", 210.0),
+            ("밥 1.5공기 (약 315g)", 315.0),
+            ("직접 입력", None),
+        ]
+    if any(k in name for k in ["국", "탕", "찌개", "전골"]):
+        return [
+            ("건더기 포함 작은 국그릇 (약 200g)", 200.0),
+            ("국그릇 1개 (약 300g)", 300.0),
+            ("넉넉한 1그릇 (약 400g)", 400.0),
+            ("직접 입력", None),
+        ]
+    if any(k in name for k in ["김치", "나물", "무침", "반찬"]):
+        return [
+            ("작은 반찬 접시 (약 30g)", 30.0),
+            ("반찬 접시 1개 (약 50g)", 50.0),
+            ("넉넉한 반찬 접시 (약 80g)", 80.0),
+            ("직접 입력", None),
+        ]
+    return [
+        ("조금 (약 50g)", 50.0),
+        ("보통 양 (약 100g)", 100.0),
+        ("넉넉한 양 (약 150g)", 150.0),
+        ("직접 입력", None),
+    ]
+
+
+def quantity_input(food_id, widget_prefix):
+    """생활 단위 선택을 기본으로 제공하고 필요할 때만 직접 수치를 입력합니다."""
+    candidate_rows = linked_rows(food_id)
+    unit = basis_unit(candidate_rows.iloc[0]["nutrient_basis"]) if not candidate_rows.empty else "g"
+    choices = portion_choices(CATALOG.loc[CATALOG["catalog_id"] == food_id, "food_name"].iloc[0], unit)
+    labels = [item[0] for item in choices]
+    selected_label = st.selectbox(
+        f"{food_label(food_id)} · 섭취량",
+        labels,
+        key=f"{widget_prefix}_portion_{food_id}"
+    )
+    amount = dict(choices)[selected_label]
+    if amount is None:
+        amount = st.number_input(
+            f"직접 입력 ({unit})",
+            min_value=1.0,
+            max_value=5000.0,
+            value=100.0,
+            step=10.0,
+            key=f"{widget_prefix}_custom_{food_id}"
+        )
+    else:
+        st.caption(f"영양 계산에 적용되는 예상 섭취량: {amount:g}{unit}")
+    return float(amount)
+
 # --------------------------------------------------
 # 사이드바
 # --------------------------------------------------
@@ -486,7 +668,7 @@ elif st.session_state.page == "nutrition":
     st.caption("영양값은 선택한 공식 자료의 기준량을 바탕으로 환산한 값입니다. 실제 제품은 포장지의 표시 정보도 확인하세요.")
 
 # --------------------------------------------------
-# 맞춤형 식단: 사용자가 고른 식품의 영양성분 합산
+# 맞춤형 식단: 역할별 추천 + 날짜 탭 + 생활 단위 섭취량
 # --------------------------------------------------
 elif st.session_state.page == "meal":
     ensure_data_loaded()
@@ -494,11 +676,13 @@ elif st.session_state.page == "meal":
         st.error("데이터 파일을 불러오지 못했습니다.")
         st.code(DATA_ERROR)
         st.info("main.py와 같은 위치의 data 폴더에 CSV 파일 3개가 있는지 확인해 주세요.")
+
     if st.button("← 홈으로 돌아가기", key="meal_back"):
         back_home()
         st.rerun()
+
     st.header("Meal Planner")
-    st.write("기간과 식품 종류를 선택해 여러 날의 식단을 구성해 보세요.")
+    st.write("주메뉴와 반찬을 함께 구성하고, 익숙한 생활 단위로 섭취량을 입력해 보세요.")
 
     if DATA_READY:
         if "nutrition_profile" not in st.session_state:
@@ -522,17 +706,14 @@ elif st.session_state.page == "meal":
             f"현재 설정: {profile['age_group']} · 활동 수준 {profile['activity']} · "
             f"선호 식품 {', '.join(profile['preferences']) if profile['preferences'] else '미설정'}"
         )
-        st.info("알레르기 설정은 자동 추천 후보를 걸러내는 보조 기능입니다. 실제 제품의 원재료와 교차접촉 정보는 반드시 별도로 확인하세요.")
-
-        category_values = sorted(
-            [str(x) for x in CATALOG["food_category"].dropna().unique() if str(x).strip()]
+        st.info(
+            "알레르기 설정은 식품명 기반의 보조 필터입니다. 실제 제품의 원재료와 "
+            "교차접촉 정보는 반드시 별도로 확인하세요."
         )
-        base_options = search_catalog(
-            "", CATALOG, limit=5000, nutrition_only=True
-        ).copy()
 
-        # 식품명에 알레르기 키워드가 포함된 후보를 자동 추천에서 제외
+        base_options = search_catalog("", CATALOG, limit=5000, nutrition_only=True).copy()
         allergy_words = [str(x).replace(" ", "").casefold() for x in profile["allergies"]]
+
         def allergy_filtered(frame):
             if not allergy_words:
                 return frame
@@ -542,103 +723,134 @@ elif st.session_state.page == "meal":
                 blocked |= names.str.contains(re.escape(normalize_food_name(word)), na=False)
             return frame[~blocked].copy()
 
+        base_options = allergy_filtered(base_options)
+
+        st.markdown("#### 날짜별 식단 구성")
+        st.caption("아래 날짜 탭은 서로 독립적으로 입력할 수 있습니다. 1일차를 완성하지 않아도 다른 날짜를 선택할 수 있습니다.")
+
+        day_tabs = st.tabs([f"{day}일차" for day in range(1, meal_days + 1)])
         all_day_totals = []
         plan_detail_rows = []
 
-        for day_number in range(1, meal_days + 1):
-            st.subheader(f"{day_number}일차")
-            day_totals = {key: 0.0 for key in NUTRIENTS}
+        for day_number, day_tab in enumerate(day_tabs, start=1):
+            with day_tab:
+                st.markdown(f"### {day_number}일차 식단")
+                day_totals = {key: 0.0 for key in NUTRIENTS}
 
-            for meal_name in ["아침", "점심", "저녁"]:
-                with st.expander(f"{meal_name} 식단", expanded=(day_number == 1 and meal_name == "아침")):
-                    category_key = f"meal_cat_{day_number}_{meal_name}"
-                    category = st.selectbox(
-                        f"{meal_name} 식품 카테고리",
-                        ["전체 카테고리"] + category_values,
-                        key=category_key,
-                    )
-                    search_text = st.text_input(
-                        f"{meal_name} 식품 검색",
-                        placeholder="예: 밥, 달걀, 사과",
-                        key=f"meal_search_{day_number}_{meal_name}",
-                    )
+                for meal_name in ["아침", "점심", "저녁"]:
+                    with st.expander(f"{meal_name} 식단", expanded=(meal_name == "아침")):
+                        category_values = sorted(
+                            [str(x) for x in base_options["food_category"].dropna().unique()
+                             if str(x).strip()]
+                        )
+                        category = st.selectbox(
+                            "식품 카테고리",
+                            ["전체 카테고리"] + category_values,
+                            key=f"meal_cat_{day_number}_{meal_name}",
+                        )
+                        search_text = st.text_input(
+                            "음식 검색",
+                            placeholder="예: 불고기, 잡곡밥, 시금치나물",
+                            key=f"meal_search_{day_number}_{meal_name}",
+                        )
 
-                    meal_options = search_catalog(
-                        search_text, base_options, limit=1500, nutrition_only=False
-                    )
-                    if category != "전체 카테고리":
-                        meal_options = meal_options[
-                            meal_options["food_category"].astype(str) == category
-                        ]
-                    meal_options = meal_options.sort_values("food_name", kind="stable")
-                    meal_options = allergy_filtered(meal_options)
+                        meal_options = search_catalog(
+                            search_text, base_options, limit=1500, nutrition_only=False
+                        )
+                        if category != "전체 카테고리":
+                            meal_options = meal_options[
+                                meal_options["food_category"].astype(str) == category
+                            ]
+                        meal_options = meal_options.sort_values("food_name", kind="stable")
+                        option_ids = meal_options["catalog_id"].tolist()
+                        selection_key = f"meal_selected_{day_number}_{meal_name}"
 
-                    option_ids = meal_options["catalog_id"].tolist()
-                    selection_key = f"meal_selected_{day_number}_{meal_name}"
+                        col_recommend, col_reset = st.columns([3, 1])
+                        with col_recommend:
+                            if st.button(
+                                "✦ 주메뉴와 반찬 추천받기",
+                                key=f"auto_meal_{day_number}_{meal_name}",
+                                use_container_width=True,
+                                help="CSV에 등록된 음식 중 주메뉴, 밥·면, 국·찌개, 반찬 후보를 골라 구성합니다.",
+                            ):
+                                if base_options.empty:
+                                    st.warning("추천할 수 있는 영양성분 연결 식품이 없습니다.")
+                                else:
+                                    recommended = recommend_meal_combo(
+                                        base_options,
+                                        f"{day_number}-{meal_name}-{profile['preferences']}-{profile['interests']}"
+                                    )
+                                    st.session_state[selection_key] = recommended
+                        with col_reset:
+                            if st.button(
+                                "선택 초기화",
+                                key=f"clear_meal_{day_number}_{meal_name}",
+                                use_container_width=True,
+                            ):
+                                st.session_state[selection_key] = []
 
-                    if st.button(
-                        f"✨ {meal_name} 자동 구성",
-                        key=f"auto_meal_{day_number}_{meal_name}",
-                        help="현재 카테고리와 알레르기 설정을 참고해 식품 후보를 골라 줍니다.",
-                    ):
-                        if not option_ids:
-                            st.warning("선택 조건에 맞는 식품이 없습니다. 카테고리나 검색어를 바꿔 보세요.")
+                        # 추천 결과가 현재 검색 필터 밖에 있더라도 선택 목록에서 사라지지 않도록 유지합니다.
+                        current_selected = st.session_state.get(selection_key, [])
+                        display_option_ids = list(dict.fromkeys(option_ids + current_selected))
+                        selected_ids = st.multiselect(
+                            "식단에 포함할 음식",
+                            display_option_ids,
+                            format_func=food_label,
+                            key=selection_key,
+                            help="추천 결과를 수정하거나 검색해서 음식을 추가할 수 있습니다.",
+                        )
+
+                        if selected_ids:
+                            role_rows = []
+                            for food_id in selected_ids:
+                                row = CATALOG.loc[CATALOG["catalog_id"] == food_id].iloc[0]
+                                role_rows.append({
+                                    "음식": row["food_name"],
+                                    "식단 역할": classify_food_role(
+                                        row["food_name"], row["food_category"]
+                                    )
+                                })
+                            st.dataframe(
+                                pd.DataFrame(role_rows),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+                            quantities = []
+                            for food_id in selected_ids:
+                                quantities.append(
+                                    quantity_input(
+                                        food_id,
+                                        f"meal_{day_number}_{meal_name}"
+                                    )
+                                )
+
+                            totals, details = calculate_meal(
+                                selected_ids,
+                                quantities,
+                                widget_prefix=f"meal_{day_number}_{meal_name}",
+                            )
+                            for key, value in totals.items():
+                                day_totals[key] += value
+                            for detail in details:
+                                plan_detail_rows.append({
+                                    "날짜": f"{day_number}일차",
+                                    "끼니": meal_name,
+                                    **detail,
+                                })
+                            st.dataframe(
+                                pd.DataFrame(details),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                            show_nutrients(totals)
                         else:
-                            # 카테고리 필터가 있으면 해당 카테고리 안에서, 없으면 전체에서 선택
-                            chosen = meal_options["catalog_id"].head(3).tolist()
-                            st.session_state[selection_key] = chosen
+                            st.caption("음식을 검색해 선택하거나 '주메뉴와 반찬 추천받기'를 눌러 구성하세요.")
 
-                    selected_ids = st.multiselect(
-                        f"{meal_name}에 넣을 식품",
-                        option_ids,
-                        format_func=food_label,
-                        key=selection_key,
-                        help="여러 식품을 선택할 수 있습니다. 자동 구성 후 직접 수정해도 됩니다.",
-                    )
-
-                    quantities = []
-                    for food_id in selected_ids:
-                        candidate_rows = linked_rows(food_id)
-                        default_unit = (
-                            basis_unit(candidate_rows.iloc[0]["nutrient_basis"])
-                            if not candidate_rows.empty else "g"
-                        )
-                        amount = st.number_input(
-                            f"{food_label(food_id)} 섭취량 ({default_unit})",
-                            min_value=1.0,
-                            max_value=5000.0,
-                            value=100.0,
-                            step=10.0,
-                            key=f"meal_amount_{day_number}_{meal_name}_{food_id}",
-                        )
-                        quantities.append(amount)
-
-                    if selected_ids:
-                        totals, details = calculate_meal(
-                            selected_ids,
-                            quantities,
-                            widget_prefix=f"meal_{day_number}_{meal_name}",
-                        )
-                        for key, value in totals.items():
-                            day_totals[key] += value
-                        for detail in details:
-                            plan_detail_rows.append({
-                                "날짜": f"{day_number}일차",
-                                "끼니": meal_name,
-                                **detail,
-                            })
-                        st.dataframe(
-                            pd.DataFrame(details),
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-                        show_nutrients(totals)
-                    else:
-                        st.caption("아직 선택한 식품이 없습니다.")
-
-            all_day_totals.append((day_number, day_totals))
-            st.markdown(f"**{day_number}일차 하루 합계**")
-            show_nutrients(day_totals)
+                st.markdown("---")
+                st.markdown(f"**{day_number}일차 하루 영양 정보 합계**")
+                show_nutrients(day_totals)
+                all_day_totals.append((day_number, day_totals))
 
         st.subheader("기간별 영양 정보 요약")
         summary = []
@@ -650,7 +862,6 @@ elif st.session_state.page == "meal":
                 "단백질 (g)": round(totals["protein_g"], 1),
                 "지방 (g)": round(totals["fat_g"], 1),
             })
-
         summary_df = pd.DataFrame(summary)
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
@@ -666,7 +877,7 @@ elif st.session_state.page == "meal":
                 key="download_meal_details",
             )
         else:
-            st.info("다운로드하려면 먼저 식단에 식품을 추가해 주세요.")
+            st.info("다운로드하려면 먼저 식단에 음식을 추가해 주세요.")
 
         st.download_button(
             "기간별 영양 요약 다운로드 (CSV)",
@@ -678,8 +889,9 @@ elif st.session_state.page == "meal":
         )
 
     st.caption(
-        "식단은 식품을 기록하고 영양 정보를 살펴보는 참고 도구입니다. "
-        "성장기에는 특정 수치에 맞추어 식사를 제한하기보다 다양한 식품을 균형 있게 먹는 것이 중요합니다."
+        "생활 단위의 g·ml 환산값은 음식과 그릇 크기에 따른 추정치입니다. "
+        "정확한 계산이 필요하면 주방저울이나 제품 포장지의 표시량을 이용하세요. "
+        "식단은 다양한 식품을 균형 있게 먹기 위한 참고 자료입니다."
     )
 
 
