@@ -3,8 +3,12 @@ import re
 from pathlib import Path
 from urllib.parse import quote_plus
 import unicodedata
+import html
 
 import pandas as pd
+import requests
+import folium
+from streamlit_folium import st_folium
 import streamlit as st
 
 # --------------------------------------------------
@@ -1012,17 +1016,227 @@ elif st.session_state.page == "farm":
     if st.button("← 홈으로 돌아가기", key="farm_back"):
         back_home()
         st.rerun()
+
     st.header("Smart Farm & Sustainable Food")
-    st.write("지역과 검색 대상을 선택해 네이버 지도에서 관련 업체를 찾아보세요.")
-    region = st.text_input("지역 입력", placeholder="예: 청주시 흥덕구")
-    category = st.selectbox("검색 대상", ["스마트팜 기업", "스마트팜 체험농장", "친환경 채소 판매처", "로컬푸드 직매장"])
-    if st.button("네이버 지도에서 검색", key="search_naver_map"):
+    st.write("지역을 입력하면 지도 중심이 해당 위치로 이동하고, 선택한 분야의 주변 업체를 지도에서 확인할 수 있습니다.")
+
+    farm_categories = [
+        "스마트팜 기업",
+        "스마트팜 체험농장",
+        "친환경 채소 판매처",
+        "로컬푸드 직매장",
+    ]
+
+    with st.form("farm_location_form"):
+        region = st.text_input(
+            "지역 입력",
+            value=st.session_state.get("farm_region", ""),
+            placeholder="예: 청주시 흥덕구",
+        )
+        previous_category = st.session_state.get("farm_category")
+        category = st.selectbox(
+            "검색 대상",
+            farm_categories,
+            index=farm_categories.index(previous_category)
+            if previous_category in farm_categories else 0,
+        )
+        search_submitted = st.form_submit_button(
+            "지역 검색 및 지도 이동",
+            use_container_width=True,
+            type="primary",
+        )
+
+    if "farm_map_center" not in st.session_state:
+        st.session_state.farm_map_center = [36.5, 127.8]
+    if "farm_map_zoom" not in st.session_state:
+        st.session_state.farm_map_zoom = 7
+    if "farm_map_label" not in st.session_state:
+        st.session_state.farm_map_label = "대한민국"
+    if "farm_places" not in st.session_state:
+        st.session_state.farm_places = []
+    if "farm_search_done" not in st.session_state:
+        st.session_state.farm_search_done = False
+
+    if search_submitted:
+        st.session_state.farm_region = region.strip()
+        st.session_state.farm_category = category
+        st.session_state.farm_places = []
+        st.session_state.farm_search_done = False
+
         if not region.strip():
-            st.warning("지역을 먼저 입력해주세요.")
+            st.warning("지역을 먼저 입력해 주세요.")
         else:
-            url = "https://map.naver.com/p/search/" + quote_plus(f"{region.strip()} {category}")
-            st.link_button("네이버 지도 열기", url, use_container_width=True)
-    st.caption("검색 결과의 주소, 영업 여부, 재배 방식은 업체 정보를 통해 다시 확인하세요.")
+            try:
+                kakao_key = st.secrets["KAKAO_REST_API_KEY"].strip()
+                headers = {"Authorization": f"KakaoAK {kakao_key}"}
+
+                address_response = requests.get(
+                    "https://dapi.kakao.com/v2/local/search/address.json",
+                    headers=headers,
+                    params={"query": region.strip(), "size": 1},
+                    timeout=10,
+                )
+                address_response.raise_for_status()
+                address_documents = address_response.json().get("documents", [])
+
+                if address_documents:
+                    location = address_documents[0]
+                    longitude = float(location["x"])
+                    latitude = float(location["y"])
+                    address_info = location.get("address") or {}
+                    road_info = location.get("road_address") or {}
+                    map_label = (
+                        address_info.get("address_name")
+                        or road_info.get("address_name")
+                        or region.strip()
+                    )
+                else:
+                    keyword_response = requests.get(
+                        "https://dapi.kakao.com/v2/local/search/keyword.json",
+                        headers=headers,
+                        params={"query": region.strip(), "size": 1},
+                        timeout=10,
+                    )
+                    keyword_response.raise_for_status()
+                    keyword_documents = keyword_response.json().get("documents", [])
+
+                    if not keyword_documents:
+                        st.warning(
+                            "입력한 지역을 찾지 못했습니다. "
+                            "시·군·구까지 포함해 다시 입력해 주세요."
+                        )
+                        st.stop()
+
+                    location = keyword_documents[0]
+                    longitude = float(location["x"])
+                    latitude = float(location["y"])
+                    map_label = location.get("place_name") or region.strip()
+
+                st.session_state.farm_map_center = [latitude, longitude]
+                st.session_state.farm_map_zoom = 14
+                st.session_state.farm_map_label = map_label
+
+                search_terms = {
+                    "스마트팜 기업": "스마트팜 기업",
+                    "스마트팜 체험농장": "스마트팜 체험농장",
+                    "친환경 채소 판매처": "친환경 채소",
+                    "로컬푸드 직매장": "로컬푸드 직매장",
+                }
+
+                places_response = requests.get(
+                    "https://dapi.kakao.com/v2/local/search/keyword.json",
+                    headers=headers,
+                    params={
+                        "query": search_terms[category],
+                        "x": longitude,
+                        "y": latitude,
+                        "radius": 20000,
+                        "sort": "distance",
+                        "size": 15,
+                    },
+                    timeout=10,
+                )
+                places_response.raise_for_status()
+                st.session_state.farm_places = places_response.json().get("documents", [])
+                st.session_state.farm_search_done = True
+
+            except KeyError:
+                st.error(
+                    "Streamlit Secrets에서 KAKAO_REST_API_KEY를 찾지 못했습니다. "
+                    "Secrets의 항목 이름과 저장 여부를 확인해 주세요."
+                )
+            except requests.exceptions.HTTPError as error:
+                st.error(
+                    "카카오 API 요청에 실패했습니다. REST API 키와 카카오 앱의 "
+                    f"로컬 API 사용 설정을 확인해 주세요. ({error})"
+                )
+            except requests.exceptions.RequestException as error:
+                st.error(f"지도 정보를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요. ({error})")
+            except (ValueError, TypeError) as error:
+                st.error(f"지도 응답을 처리하는 중 문제가 발생했습니다. ({error})")
+
+    map_center = st.session_state.farm_map_center
+    map_zoom = st.session_state.farm_map_zoom
+    map_label = st.session_state.farm_map_label
+
+    farm_map = folium.Map(
+        location=map_center,
+        zoom_start=map_zoom,
+        tiles="OpenStreetMap",
+        control_scale=True,
+    )
+
+    if map_zoom > 7:
+        folium.Marker(
+            location=map_center,
+            tooltip=map_label,
+            popup=folium.Popup(html.escape(map_label), max_width=260),
+            icon=folium.Icon(color="green", icon="leaf", prefix="fa"),
+        ).add_to(farm_map)
+
+    places = st.session_state.farm_places
+    for place in places:
+        try:
+            place_latitude = float(place["y"])
+            place_longitude = float(place["x"])
+            place_name = html.escape(str(place.get("place_name", "검색 장소")))
+            place_address = html.escape(
+                str(place.get("road_address_name") or place.get("address_name") or "주소 정보 없음")
+            )
+            place_url = str(place.get("place_url", ""))
+
+            popup_content = f"<b>{place_name}</b><br>{place_address}"
+            if place_url.startswith("https://"):
+                popup_content += (
+                    f'<br><a href="{html.escape(place_url, quote=True)}" '
+                    'target="_blank" rel="noopener noreferrer">장소 상세 정보</a>'
+                )
+
+            folium.Marker(
+                location=[place_latitude, place_longitude],
+                tooltip=place_name,
+                popup=folium.Popup(popup_content, max_width=300),
+                icon=folium.Icon(color="orange", icon="info-sign"),
+            ).add_to(farm_map)
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    st_folium(
+        farm_map,
+        width=None,
+        height=500,
+        returned_objects=[],
+        key="farm_embedded_map",
+    )
+
+    if st.session_state.farm_search_done:
+        st.markdown(f"#### 주변 검색 결과 · {len(places)}곳")
+        if places:
+            for place in places:
+                place_name = str(place.get("place_name", "이름 없음"))
+                place_address = (
+                    place.get("road_address_name")
+                    or place.get("address_name")
+                    or "주소 정보 없음"
+                )
+                place_category = place.get("category_name", "")
+                place_url = place.get("place_url", "")
+
+                st.markdown(f"**{place_name}**")
+                st.caption(f"{place_address} · {place_category}")
+                if str(place_url).startswith("https://"):
+                    st.markdown(f"[장소 상세 정보 보기]({place_url})")
+                st.divider()
+        else:
+            st.info(
+                "해당 지역 반경 20km에서 검색 결과를 찾지 못했습니다. "
+                "다른 검색 대상이나 인근 지역을 입력해 보세요."
+            )
+
+    st.caption(
+        "지도는 OpenStreetMap을 사용하고, 지역 좌표 및 주변 업체 검색은 카카오 로컬 API를 사용합니다. "
+        "검색 결과의 영업 여부, 인증 상태, 재배 방식은 각 업체에 직접 확인하세요."
+    )
 
 # --------------------------------------------------
 # BMI 안내
