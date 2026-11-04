@@ -1,6 +1,8 @@
-
-plotly
-requests
 streamlit>=1.37.0
 pandas>=2.0.0
+plotly
+requests
 Pillow>=9.0.0
+streamlit-image-coordinates>=0.2.1
+folium>=0.16.0
+streamlit-folium>=0.20.0
