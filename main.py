@@ -116,7 +116,7 @@ def back_home():
 # --------------------------------------------------
 # 디자인
 # --------------------------------------------------
-st.markdown(
+st.html(
     """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@400;500;600;700&display=swap');
@@ -235,8 +235,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
 }
 
 </style>
-""",
-    unsafe_allow_html=True,
+"""
 )
 
 # --------------------------------------------------
@@ -585,10 +584,10 @@ def quantity_input(food_id, widget_prefix, basis=None):
 # 사이드바
 # --------------------------------------------------
 with st.sidebar:
-    st.markdown('<div class="sidebar-brand">THE DINING TABLE</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-kicker">FOOD · NUTRITION · SUSTAINABILITY</div>', unsafe_allow_html=True)
+    st.html('<div class="sidebar-brand">THE DINING TABLE</div>')
+    st.html('<div class="sidebar-kicker">FOOD · NUTRITION · SUSTAINABILITY</div>')
     st.divider()
-    st.markdown('<div class="sidebar-section-label">Explore</div>', unsafe_allow_html=True)
+    st.html('<div class="sidebar-section-label">Explore</div>')
     nav_items = [
         ("홈으로", "home", "nav_home"),
         ("영양 성분 분석", "nutrition", "nav_nutrition"),
@@ -604,10 +603,9 @@ with st.sidebar:
     st.divider()
     st.caption("메뉴를 선택하면 해당 기능 화면으로 이동합니다.")
 
-st.markdown(
+st.html(
     '<div class="brand">THE DINING TABLE</div>'
-    '<div class="kicker">FOOD · NUTRITION · A BETTER YOU</div><hr>',
-    unsafe_allow_html=True,
+    '<div class="kicker">FOOD · NUTRITION · A BETTER YOU</div><hr>'
 )
 
 # --------------------------------------------------
@@ -618,17 +616,16 @@ if st.session_state.page == "home":
         image_data = base64.b64encode(IMAGE_PATH.read_bytes()).decode("utf-8")
         suffix = IMAGE_PATH.suffix.lower()
         mime = "image/png" if suffix == ".png" else "image/jpeg"
-        st.markdown(
+        st.html(
             f"""<div class="kitchen-shell">
               <img src="data:{mime};base64,{image_data}" alt="주방 메인 화면" />
               <a class="kitchen-hotspot hotspot-nutrition" href="?page=nutrition" target="_top"><span>영양 성분 분석</span></a>
               <a class="kitchen-hotspot hotspot-meal" href="?page=meal" target="_top"><span>맞춤형 식단</span></a>
               <a class="kitchen-hotspot hotspot-bmi" href="?page=bmi" target="_top"><span>BMI 안내</span></a>
               <a class="kitchen-hotspot hotspot-farm" href="?page=farm" target="_top"><span>스마트팜 검색</span></a>
-            </div>""",
-            unsafe_allow_html=True,
+            </div>"""
         )
-        st.markdown('<div class="home-hint">주방 그림 속 기능 영역에 마우스를 올려 기능을 확인하고 클릭하세요.</div>', unsafe_allow_html=True)
+        st.html('<div class="home-hint">주방 그림 속 기능 영역에 마우스를 올려 기능을 확인하고 클릭하세요.</div>')
     else:
         st.warning("kitchen_home.png 파일이 없습니다. main.py와 같은 폴더에 업로드해 주세요.")
         cols = st.columns(4)
@@ -637,7 +634,7 @@ if st.session_state.page == "home":
                 if st.button(label, key=f"home_{key}", use_container_width=True):
                     set_page(page)
                     st.rerun()
-    st.markdown('<div class="kicker">A THOUGHTFUL WAY TO EAT</div>', unsafe_allow_html=True)
+    st.html('<div class="kicker">A THOUGHTFUL WAY TO EAT</div>')
     st.markdown("## Discover your table.")
     st.write("식품 영양 정보부터 맞춤형 식단, 지속 가능한 먹거리까지 한곳에서 확인하세요.")
     st.caption("영양 정보는 영양 성분 분석 또는 맞춤형 식단 메뉴에서 불러옵니다.")
@@ -1248,13 +1245,13 @@ elif st.session_state.page == "bmi":
     st.header("BMI & 성장 정보")
     st.write("BMI는 키와 몸무게를 이용한 참고 지표입니다. 숫자 하나만으로 건강 상태를 판단할 수는 없습니다.")
 
-    st.markdown("""
+    st.html("""
     <div style="background:linear-gradient(120deg,#29332d,#24211c);border:1px solid #647663;border-radius:10px;padding:1rem 1.2rem;margin:.6rem 0 1rem 0">
       <div style="color:#b7c9ad;font-size:.82rem;letter-spacing:.08em">HOW TO READ BMI</div>
       <div style="font-family:'Noto Serif KR',serif;font-size:1.12rem;color:#f0e8d9;margin:.35rem 0">청소년 BMI는 성인 기준표와 다르게 해석해야 합니다.</div>
       <div style="color:#d4d0c5;font-size:.92rem;line-height:1.65">성장기에는 나이와 성별에 따라 키와 체중의 변화 폭이 다릅니다. 따라서 성인 BMI 구간이나 평균 체중을 목표로 삼지 않고, 연령·성별별 성장도표에서 성장 흐름을 함께 확인해야 합니다.</div>
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
     with st.form("bmi_calculator_form"):
         age_years = st.number_input("만 나이", min_value=2, max_value=100, value=16, step=1)
@@ -1280,7 +1277,6 @@ elif st.session_state.page == "bmi":
     st.caption("정확한 성장 백분위수 확인에는 공식 소아청소년 성장도표의 연령·성별 기준 자료가 필요합니다. 이 앱에서는 검증되지 않은 평균값이나 목표 체중을 만들어 보여주지 않도록 했습니다.")
 
 st.markdown("---")
-st.markdown(
-    '<div class="footer-brand">THE DINING TABLE · FOOD / NUTRITION / SUSTAINABILITY</div>',
-    unsafe_allow_html=True,
+st.html(
+    '<div class="footer-brand">THE DINING TABLE · FOOD / NUTRITION / SUSTAINABILITY</div>'
 )
