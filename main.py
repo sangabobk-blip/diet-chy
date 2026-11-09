@@ -1,3 +1,4 @@
+# 이미지 파일을 HTML 화면에 표시하고, 정규식·경로·문자열 정리 기능을 사용하기 위한 모듈
 import base64
 import re
 from pathlib import Path
@@ -5,6 +6,7 @@ from urllib.parse import quote_plus
 import unicodedata
 import html
 
+# CSV 데이터를 표 형태로 처리하고, 카카오 API 및 지도 라이브러리와 Streamlit 화면을 구성합니다.
 import pandas as pd
 import requests
 import folium
@@ -14,6 +16,7 @@ import streamlit as st
 # --------------------------------------------------
 # 기본 설정 및 데이터 불러오기
 # --------------------------------------------------
+# 브라우저 탭 제목과 화면 배치 등 Streamlit 앱의 기본 표시 방식을 설정합니다.
 st.set_page_config(
     page_title="THE DINING TABLE",
     page_icon="T",
@@ -21,10 +24,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# 현재 main.py가 저장된 폴더를 기준으로 데이터 폴더와 홈 이미지를 찾습니다.
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 IMAGE_PATH = BASE_DIR / "kitchen_home.png"
 
+# 데이터 파일은 반복 실행 때마다 다시 읽지 않도록 캐시에 저장합니다.
+# 세 CSV 파일을 읽고, 영양 계산에 사용할 수 있도록 숫자형 열을 변환하는 함수입니다.
 @st.cache_data(show_spinner=False)
 def load_data():
     """data 폴더의 음식 목록, 영양성분, 연결표를 불러옵니다."""
@@ -50,6 +56,7 @@ def load_data():
     ]
     link_cols = ["catalog_id", "food_code"]
 
+    # 식품 목록·영양 자료·연결표를 각각 읽습니다. ID를 문자열로 유지해 코드 형식이 바뀌지 않게 합니다.
     catalog = pd.read_csv(
         catalog_path, encoding="utf-8-sig", dtype=str, usecols=catalog_cols
     ).fillna("")
@@ -67,6 +74,7 @@ def load_data():
         "calcium_mg", "iron_mg", "potassium_mg", "vitamin_a_ug_rae",
         "vitamin_c_mg", "cholesterol_mg"
     ]
+    # 영양값 열은 계산이 가능하도록 숫자로 바꾸고, 변환할 수 없는 값은 결측치로 처리합니다.
     for col in numeric_cols:
         if col in nutrition.columns:
             nutrition[col] = pd.to_numeric(nutrition[col], errors="coerce")
@@ -79,6 +87,7 @@ DATA_READY = False
 DATA_ERROR = ""
 DATA_ATTEMPTED = False
 
+# 영양 분석이나 식단 페이지에 처음 들어왔을 때만 데이터를 불러오도록 관리합니다.
 def ensure_data_loaded():
     global CATALOG, NUTRITION, LINKS, DATA_READY, DATA_ERROR, DATA_ATTEMPTED
     if DATA_ATTEMPTED:
@@ -94,6 +103,7 @@ def ensure_data_loaded():
         DATA_ERROR = str(e)
     return DATA_READY
 
+# 앱에서 사용할 수 있는 페이지 이름을 제한해 잘못된 페이지 이동을 방지합니다.
 VALID_PAGES = {"home", "nutrition", "meal", "profile", "farm", "bmi"}
 query_page = st.query_params.get("page")
 if query_page in VALID_PAGES:
@@ -104,18 +114,21 @@ elif "page" not in st.session_state or st.session_state.page not in VALID_PAGES:
 if "intake" not in st.session_state:
     st.session_state.intake = []
 
+# 선택한 페이지를 세션 상태와 URL에 함께 저장해 화면 이동을 처리합니다.
 def set_page(page):
     if page not in VALID_PAGES:
         page = "home"
     st.session_state.page = page
     st.query_params["page"] = page
 
+# 각 기능 화면에서 공통으로 사용하는 홈 화면 이동 함수입니다.
 def back_home():
     set_page("home")
 
 # --------------------------------------------------
 # 디자인
 # --------------------------------------------------
+# 아래 CSS는 앱 전체의 색상, 글꼴, 버튼, 입력창, 홈 화면 이미지 영역을 꾸밉니다.
 st.html(
     """
 <style>
@@ -241,6 +254,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
 # --------------------------------------------------
 # 영양 정보 계산 함수
 # --------------------------------------------------
+# 영양소 데이터의 CSV 열 이름을 화면에 표시할 한글 이름과 단위에 연결합니다.
 NUTRIENTS = {
     "kcal": ("열량 (kcal)", "kcal"),
     "carbohydrate_g": ("탄수화물 (g)", "g"),
@@ -255,8 +269,7 @@ NUTRIENTS = {
     "vitamin_c_mg": ("비타민 C (mg)", "mg"),
 }
 
-# 식품 표시에서 사용하는 일반 성인 기준치(개인별 권장량이 아님)
-# 청소년·임신부·질환자 등은 연령과 상태에 따라 기준이 달라질 수 있습니다.
+# 식품 표시에서 사용하는 일반 성인 기준치입니다. 개인별 권장량이 아니며, 연령과 건강 상태에 따라 필요한 양은 달라질 수 있습니다.
 DAILY_LABEL_VALUES = {
     "kcal": 2000, "carbohydrate_g": 324, "sugars_g": 100, "fiber_g": 25,
     "protein_g": 55, "fat_g": 54, "sodium_mg": 2000,
@@ -265,20 +278,24 @@ DAILY_LABEL_VALUES = {
 }
 
 
+# 식품 고유 ID를 화면에 표시할 음식 이름으로 바꿉니다.
 def food_label(catalog_id):
     row = CATALOG.loc[CATALOG["catalog_id"] == catalog_id].iloc[0]
     return str(row["food_name"])
 
+# 식품 목록과 영양성분 연결표를 이용해 해당 음식의 영양 자료를 찾습니다.
 def linked_rows(catalog_id):
     codes = LINKS.loc[LINKS["catalog_id"] == catalog_id, "food_code"].astype(str).unique()
     return NUTRITION[NUTRITION["food_code"].astype(str).isin(codes)].copy()
 
+# 영양 자료의 기준량에 g 또는 ml 단위가 포함되어 있는지 판별합니다.
 def basis_unit(basis):
     text = str(basis).lower().replace(" ", "")
     if "ml" in text:
         return "ml"
     return "g"
 
+# 예를 들어 100g 기준 자료를 150g 섭취량에 맞게 비례 환산합니다.
 def nutrient_values(row, amount):
     """기준량(보통 100g 또는 100ml)에 대한 값을 실제 섭취량으로 환산합니다."""
     basis = str(row.get("nutrient_basis", "100g"))
@@ -292,6 +309,7 @@ def nutrient_values(row, amount):
         result[key] = (0.0 if pd.isna(value) else float(value)) * multiplier
     return result, unit, basis
 
+# 계산된 열량과 주요 영양소를 지표와 기준치 비교 표로 화면에 표시합니다.
 def show_nutrients(values):
     keys = ["kcal", "carbohydrate_g", "protein_g", "fat_g", "sodium_mg"]
     cols = st.columns(5)
@@ -312,6 +330,7 @@ def show_nutrients(values):
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         st.caption("비교 기준은 식품 영양표시에 사용하는 일반 성인 1일 기준치(열량 2,000kcal 포함)입니다. 개인별 권장 섭취량이나 하루 목표가 아니며, 청소년은 연령·성별·성장 상태와 활동량에 따라 필요한 양이 달라집니다. 이 수치를 식사 제한이나 체중 조절 목표로 사용하지 마세요.")
 
+# 같은 음식에 여러 영양 자료가 연결된 경우 사용자가 자료 하나 또는 동일 기준량 평균을 선택합니다.
 def choose_nutrition_row(catalog_id, widget_key):
     candidates = linked_rows(catalog_id)
     if candidates.empty:
@@ -355,6 +374,7 @@ def choose_nutrition_row(catalog_id, widget_key):
             key=widget_key,
         )
 
+    # 평균 옵션을 선택했다면 같은 기준량으로 묶인 자료의 영양소별 평균을 계산합니다.
     if selected.startswith("average::"):
         group = groups[selected.split("::", 1)[1]].copy()
         averaged = group.iloc[0].copy()
@@ -372,6 +392,7 @@ def choose_nutrition_row(catalog_id, widget_key):
     row_index = int(selected.split("::", 1)[1])
     return candidates.loc[row_index]
 
+# 여러 음식의 영양값을 각각 계산한 뒤 합산하고, 음식별 상세 내역도 만듭니다.
 def calculate_meal(selected_ids, quantities, widget_prefix="meal"):
     totals = {key: 0.0 for key in NUTRIENTS}
     detail_rows = []
@@ -394,15 +415,18 @@ def calculate_meal(selected_ids, quantities, widget_prefix="meal"):
     return totals, detail_rows
 
 
+# 띄어쓰기나 유니코드 차이 때문에 검색이 누락되지 않도록 음식 이름을 정규화합니다.
 def normalize_food_name(value):
     """검색 비교를 위해 유니코드와 공백을 정리합니다."""
     value = unicodedata.normalize("NFKC", str(value)).casefold()
     return re.sub(r"\s+", "", value)
 
+# 음식 종류·영양자료 연결 여부·검색어를 조건으로 음식 목록을 필터링합니다.
 def search_catalog(search_text, source_df, limit=300, nutrition_only=False, search_type="전체"):
     """음식명 일부 검색 + 검색어별 일치 + 관련도순 정렬."""
     results = source_df.copy()
 
+    # 사용자가 선택한 음식 유형이 있으면 해당 유형만 검색 대상으로 남깁니다.
     if search_type != "전체":
         results = results[results["catalog_type"] == search_type]
 
@@ -422,6 +446,7 @@ def search_catalog(search_text, source_df, limit=300, nutrition_only=False, sear
             mask &= names.str.contains(re.escape(token), regex=True, na=False)
         results = results[mask].copy()
 
+        # 정확히 일치하는 이름, 검색어로 시작하는 이름을 우선해 검색 결과의 순서를 정합니다.
         if not results.empty:
             matched_names = results["food_name"].fillna("").map(normalize_food_name)
             results["_rank"] = matched_names.map(
@@ -434,6 +459,7 @@ def search_catalog(search_text, source_df, limit=300, nutrition_only=False, sear
     return results.head(limit)
 
 
+# 음식 이름과 카테고리를 바탕으로 주메뉴, 밥·면, 국·찌개, 반찬 등의 역할을 추정합니다.
 def classify_food_role(food_name, food_category=""):
     """음식명과 분류명을 바탕으로 식단 내 역할을 추정합니다."""
     name = normalize_food_name(food_name)
@@ -460,6 +486,7 @@ def classify_food_role(food_name, food_category=""):
     return "주메뉴"
 
 
+# 데이터에 실제 등록된 음식 중 식단 역할별 후보를 골라 한 끼 구성을 추천합니다.
 def recommend_meal_combo(frame, seed_text):
     """CSV에 실제 존재하고 영양자료와 연결된 음식 중 역할별 후보를 추천합니다."""
     import random
@@ -500,6 +527,7 @@ def recommend_meal_combo(frame, seed_text):
     return selected
 
 
+# 음식 종류에 따라 공기·컵·접시 등 익숙한 생활 단위의 대략적인 섭취량 선택지를 제공합니다.
 def portion_choices(food_name, unit):
     """가정용 기준의 대략적인 양을 제공합니다. 표시 중량은 음식·조리법·그릇 크기에 따라 달라질 수 있습니다."""
     name = normalize_food_name(food_name)
@@ -554,6 +582,7 @@ def portion_choices(food_name, unit):
     ]
 
 
+# 선택한 생활 단위 또는 직접 입력한 양을 반환해 영양 계산에 전달합니다.
 def quantity_input(food_id, widget_prefix, basis=None):
     """생활 단위 선택을 기본으로 제공하고 필요할 때만 직접 수치를 입력합니다."""
     candidate_rows = linked_rows(food_id)
@@ -583,6 +612,7 @@ def quantity_input(food_id, widget_prefix, basis=None):
 # --------------------------------------------------
 # 사이드바
 # --------------------------------------------------
+# 모든 페이지에서 공통으로 보이는 사이드바 메뉴를 만들고 클릭한 페이지로 이동시킵니다.
 with st.sidebar:
     st.html('<div class="sidebar-brand">THE DINING TABLE</div>')
     st.html('<div class="sidebar-kicker">FOOD · NUTRITION · SUSTAINABILITY</div>')
@@ -611,6 +641,7 @@ st.html(
 # --------------------------------------------------
 # 홈
 # --------------------------------------------------
+# 홈 화면: 주방 이미지의 투명한 기능 영역을 클릭하면 각 기능 페이지로 이동합니다.
 if st.session_state.page == "home":
     if IMAGE_PATH.exists():
         image_data = base64.b64encode(IMAGE_PATH.read_bytes()).decode("utf-8")
@@ -642,6 +673,7 @@ if st.session_state.page == "home":
 # --------------------------------------------------
 # 영양 성분 분석: CSV 검색 및 실제 영양값 계산
 # --------------------------------------------------
+# 영양 분석 화면: 음식 검색 → 영양 자료 선택 → 섭취량 입력 → 영양값 계산 순서로 진행합니다.
 elif st.session_state.page == "nutrition":
     ensure_data_loaded()
     if not DATA_READY:
@@ -714,6 +746,7 @@ elif st.session_state.page == "nutrition":
 # --------------------------------------------------
 # 맞춤형 식단: 역할별 추천 + 날짜 탭 + 생활 단위 섭취량
 # --------------------------------------------------
+# 맞춤형 식단 화면: 사용자 설정과 음식 데이터로 날짜별 아침·점심·저녁 식단을 구성합니다.
 elif st.session_state.page == "meal":
     ensure_data_loaded()
     if not DATA_READY:
@@ -772,15 +805,18 @@ elif st.session_state.page == "meal":
         st.markdown("#### 날짜별 식단 구성")
         st.caption("아래 날짜 탭은 서로 독립적으로 입력할 수 있습니다. 1일차를 완성하지 않아도 다른 날짜를 선택할 수 있습니다.")
 
+        # 날짜별 탭을 독립적으로 만들어 1일차 입력 여부와 관계없이 다른 날짜도 편집할 수 있습니다.
         day_tabs = st.tabs([f"{day}일차" for day in range(1, meal_days + 1)])
         all_day_totals = []
         plan_detail_rows = []
 
+        # 각 날짜 탭 안에서 세 끼의 영양값을 누적해 하루 총합을 계산합니다.
         for day_number, day_tab in enumerate(day_tabs, start=1):
             with day_tab:
                 st.markdown(f"### {day_number}일차 식단")
                 day_totals = {key: 0.0 for key in NUTRIENTS}
 
+                # 아침·점심·저녁을 각각 별도 영역으로 구성합니다.
                 for meal_name in ["아침", "점심", "저녁"]:
                     with st.expander(f"{meal_name} 식단", expanded=(meal_name == "아침")):
                         category_values = sorted(
@@ -942,6 +978,7 @@ elif st.session_state.page == "meal":
 # --------------------------------------------------
 # 사용자 영양 정보 설정
 # --------------------------------------------------
+# 사용자 설정 화면: 연령대, 활동 수준, 선호 식품, 알레르기 및 관심 영양소를 저장합니다.
 elif st.session_state.page == "profile":
     if st.button("← 홈으로 돌아가기", key="profile_back"):
         back_home()
@@ -1009,6 +1046,7 @@ elif st.session_state.page == "profile":
 # --------------------------------------------------
 # 스마트팜 및 친환경 먹거리 검색
 # --------------------------------------------------
+# 스마트팜 화면: 입력한 지역의 좌표를 찾고 카카오 로컬 API로 주변 관련 장소를 검색합니다.
 elif st.session_state.page == "farm":
     if st.button("← 홈으로 돌아가기", key="farm_back"):
         back_home()
@@ -1063,10 +1101,12 @@ elif st.session_state.page == "farm":
         if not region.strip():
             st.warning("지역을 먼저 입력해 주세요.")
         else:
+                # API 인증키는 코드에 직접 쓰지 않고 Streamlit Secrets에서 안전하게 불러옵니다.
             try:
                 kakao_key = st.secrets["KAKAO_REST_API_KEY"].strip()
                 headers = {"Authorization": f"KakaoAK {kakao_key}"}
 
+                # 먼저 주소 검색 API로 입력 지역의 위도·경도를 확인합니다.
                 address_response = requests.get(
                     "https://dapi.kakao.com/v2/local/search/address.json",
                     headers=headers,
@@ -1120,6 +1160,7 @@ elif st.session_state.page == "farm":
                     "로컬푸드 직매장": "로컬푸드 직매장",
                 }
 
+                # 확인한 좌표를 중심으로 선택한 유형의 주변 장소를 최대 15곳 검색합니다.
                 places_response = requests.get(
                     "https://dapi.kakao.com/v2/local/search/keyword.json",
                     headers=headers,
@@ -1156,6 +1197,7 @@ elif st.session_state.page == "farm":
     map_zoom = st.session_state.farm_map_zoom
     map_label = st.session_state.farm_map_label
 
+    # 검색된 지역을 중심으로 Folium 지도를 만들고, 검색 결과를 지도 마커로 표시합니다.
     farm_map = folium.Map(
         location=map_center,
         zoom_start=map_zoom,
@@ -1238,6 +1280,7 @@ elif st.session_state.page == "farm":
 # --------------------------------------------------
 # BMI 안내
 # --------------------------------------------------
+# BMI 안내 화면: 키와 몸무게로 BMI를 계산하되 청소년에게 성인 기준을 적용하지 않도록 안내합니다.
 elif st.session_state.page == "bmi":
     if st.button("← 홈으로 돌아가기", key="bmi_back"):
         back_home()
@@ -1253,6 +1296,7 @@ elif st.session_state.page == "bmi":
     </div>
     """)
 
+    # 키·몸무게 입력을 한 번에 제출하도록 폼으로 묶습니다.
     with st.form("bmi_calculator_form"):
         age_years = st.number_input("만 나이", min_value=2, max_value=100, value=16, step=1)
         sex = st.selectbox("성별 성장도표 선택에 필요한 항목", ["선택 안 함", "남아 성장도표", "여아 성장도표"])
